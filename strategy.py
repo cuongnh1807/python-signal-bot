@@ -1141,7 +1141,7 @@ def analyze_trading_setup(data, swing_hl):
         "rsi": current_rsi,
         "velocity": velocity,
         "current_volume": data['volume'].iloc[-1],
-        "current_volume_ratio": data['volume'].iloc[-1] / data['volume'].mean(),
+        "current_volume_ratio": data['volume'].iloc[-1] / data['volume'].tail(20).mean(),
         'last_candle_signal': "SELL" if data['close'].iloc[-1] <= data['open'].iloc[-1] else "BUY"
     }
 

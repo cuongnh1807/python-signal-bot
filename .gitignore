@@ -1,0 +1,7 @@
+build
+dist
+smartmoneyconcepts.egg-info
+.DS_Store
+__pycache__
+.env
+trading_bot.log

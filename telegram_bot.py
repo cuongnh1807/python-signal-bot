@@ -115,6 +115,8 @@ class TelegramBot:
                     f"• Volume Trend: {volume_emoji} {vol_analysis.get('volume_trend', 0):.1f}%\n"
                     f"• Buy/Sell Ratio: {vol_analysis.get('buy_ratio', 0):.1f}% / {vol_analysis.get('sell_ratio', 0):.1f}%\n"
                     f"• Pressure: {pressure_emoji} {vol_analysis.get('analysis', {}).get('pressure', 'N/A')}\n"
+                    f"• Current Volume: {trade_setups.get('current_volume', 0):.1f}\n"
+                    f"• Current Volume Ratio: {trade_setups.get('current_volume_ratio', 0):.1f}\n"
                     f"• Volume Dominance: {vol_analysis.get('analysis', {}).get('dominance', 'N/A')}\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"⚡️ <b>Momentum Analysis</b>\n"

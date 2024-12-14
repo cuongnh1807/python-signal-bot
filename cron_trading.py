@@ -48,7 +48,7 @@ class TradingBot:
             logger.info(f"Analyzing {symbol} on {interval} timeframe")
 
             # Calculate start time (5 days of data)
-            start_time = datetime.now() - timedelta(days=7)
+            start_time = datetime.now() - timedelta(days=10)
 
             # Fetch market data
             df = self.data_fetcher.get_historical_klines(

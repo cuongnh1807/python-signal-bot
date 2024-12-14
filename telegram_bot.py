@@ -83,13 +83,17 @@ class TelegramBot:
             ))
 
             # Limit to top 3 closest setups
-            filtered_setups = filtered_setups[:3]
+            # filtered_setups = filtered_setups[:3]
 
             # Get volume analysis from the first setup (if any)
             bullish_setups = [
                 s for s in filtered_setups if s['position_type'].upper() == 'LONG']
+
+            bullish_setups = bullish_setups[:2]
             bearish_setups = [
                 s for s in filtered_setups if s['position_type'].upper() == 'SHORT']
+
+            bearish_setups = bearish_setups[:2]
 
             if filtered_setups:
                 vol_analysis = filtered_setups[0].get('volume_analysis', {})

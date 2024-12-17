@@ -619,6 +619,9 @@ def calculate_dynamic_risk_percentage(
         }
     })
 
+    if risk_assessment['risk_percentage'] == 0:
+        risk_assessment['recommended_leverage'] = 75
+
     # Adjust recommended leverage based on risk assessment
     if setup_quality >= 80 and volume_analysis['volume_trend'] > 0:
         risk_assessment['recommended_leverage'] = min(

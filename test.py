@@ -623,9 +623,11 @@ def analyze_trading_setup(data, swing_hl):
                 max_leverage = 15  # Moderate risk setups
             else:
                 max_leverage = 10  # Higher risk setups get limited leverage
-
-            suggested_leverage = min(
-                max_leverage, int(1 / risk_percentage * 50))
+            if risk_percentage <= 0:
+                suggested_leverage = 75
+            else:
+                suggested_leverage = min(
+                    max_leverage, int(1 / risk_percentage * 50))
 
             # Get entry quality based on setup quality
             if risk_assessment['setup_quality'] >= 80:

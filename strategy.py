@@ -1019,6 +1019,8 @@ def analyze_trading_setup(data, swing_hl):
             else:
                 max_leverage = 10  # Higher risk setups get limited leverage
 
+            if risk_percentage <= 0:
+                suggested_leverage = 75
             suggested_leverage = min(
                 max_leverage, int(1 / risk_percentage * 50))
 

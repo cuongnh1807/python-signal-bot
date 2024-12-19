@@ -20,6 +20,115 @@ setup_classification = {
 }
 
 
+def calculate_rsi(data: Union[pd.DataFrame, pd.Series], rsi_length: int = 14, ma_type: str = "SMA") -> pd.Series:
+    """
+    Calculate RSI (Relative Strength Index)
+
+    Parameters:
+    - data: DataFrame with OHLCV data or Series of values
+    - periods: RSI period (default 14)
+
+    Returns:
+    - RSI values as Series
+    """
+    # Handle both DataFrame and Series inputs
+    if isinstance(data, pd.DataFrame):
+        series = data['close']
+    else:
+        series = data
+
+    delta = series.diff()
+    # Separate gains and losses
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+
+    # Calculate the smoothed average gains and losses
+    if ma_type == "SMA":
+        avg_gain = gain.rolling(window=rsi_length).mean()
+        avg_loss = loss.rolling(window=rsi_length).mean()
+    elif ma_type == "EMA":
+        avg_gain = gain.ewm(span=rsi_length, adjust=False).mean()
+        avg_loss = loss.ewm(span=rsi_length, adjust=False).mean()
+    else:
+        raise ValueError("Invalid moving average type. Use 'SMA' or 'EMA'.")
+
+    # Calculate the Relative Strength (RS)
+    rs = avg_gain / avg_loss
+
+    # Calculate RSI
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+
+def calculate_macd(data: pd.DataFrame, short_window: int = 12, long_window: int = 26, signal_window: int = 9) -> pd.DataFrame:
+    """Calculate the MACD and Signal line."""
+    exp1 = data['close'].ewm(span=short_window, adjust=False).mean()
+    exp2 = data['close'].ewm(span=long_window, adjust=False).mean()
+    macd = exp1 - exp2
+    signal = macd.ewm(span=signal_window, adjust=False).mean()
+    return pd.DataFrame({'macd': macd, 'signal': signal})
+
+
+def generate_signals(data: pd.DataFrame) -> pd.DataFrame:
+    """Generate trading signals based on RSI and MACD."""
+    # Calculate RSI
+    data['rsi'] = calculate_rsi(data)
+
+    # Calculate MACD
+    macd_df = calculate_macd(data)
+    data['macd'] = macd_df['macd']
+    data['macd_signal'] = macd_df['signal']
+
+    # Generate signals
+    data['signal'] = 0  # Default to no signal
+    data['signal'] = data.apply(lambda x: 1 if (
+        x['rsi'] < 30 and x['macd'] > x['macd_signal']) else x['signal'], axis=1)  # Buy signal
+    data['signal'] = data.apply(lambda x: -1 if (x['rsi'] > 70 and x['macd']
+                                < x['macd_signal']) else x['signal'], axis=1)  # Sell signal
+
+    return data
+
+
+def find_closest_signal(data: pd.DataFrame, current_price: float) -> dict:
+    """Find the closest signal to the current price and determine entry price."""
+    # Filter signals
+    # Create a copy to avoid SettingWithCopyWarning
+    signals = data[data['signal'] != 0].copy()
+
+    if signals.empty:
+        return {"signal": None, "trend": "No signals available", "entry_price": None}
+
+    # Find the closest signal
+    signals.loc[:, 'price_distance'] = (
+        signals['close'] - current_price).abs()  # Use .loc to set values
+    closest_signal = signals.loc[signals['price_distance'].idxmin()]
+
+    # Determine short trend based on last few closing prices
+    recent_prices = data['close'].tail(5)
+    trend = "UPTREND" if recent_prices.is_monotonic_increasing else "DOWNTREND"
+
+    # Calculate entry price based on signal price
+    if closest_signal['signal'] == 1:  # Buy signal
+        entry_price = closest_signal['close'] * \
+            0.99  # 1% below the signal price
+    elif closest_signal['signal'] == -1:  # Sell signal
+        entry_price = closest_signal['close'] * \
+            1.01  # 1% above the signal price
+    else:
+        # Default to signal price if no action
+        entry_price = closest_signal['close']
+
+    return {
+        "signal": closest_signal['signal'],
+        "price": closest_signal['close'],
+        "entry_price": entry_price,
+        "trend": trend,
+        "rsi": closest_signal['rsi'],
+        "macd": closest_signal['macd'],
+        "macd_signal": closest_signal['macd_signal']
+    }
+
+
 def calculate_entry_percentage(ob_direction: int, volume_score: float, ob_height_percent: float) -> dict:
     """
     Calculate entry percentages within the order block for limit orders
@@ -119,30 +228,6 @@ def calculate_stop_loss_percentage(ob_direction: int, volume_score: float, ob_he
     return min(1.5, total_percentage)
 
 
-def calculate_rsi(data: Union[pd.DataFrame, pd.Series], periods: int = 14) -> pd.Series:
-    """
-    Calculate RSI (Relative Strength Index)
-
-    Parameters:
-    - data: DataFrame with OHLCV data or Series of values
-    - periods: RSI period (default 14)
-
-    Returns:
-    - RSI values as Series
-    """
-    # Handle both DataFrame and Series inputs
-    if isinstance(data, pd.DataFrame):
-        series = data['close']
-    else:
-        series = data
-
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=periods).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
-
 def calculate_pivot_points(data: pd.DataFrame) -> dict:
     """
     Calculate Pivot Points including support and resistance levels
@@ -219,6 +304,61 @@ def calculate_pivot_quality(price: float, pivots: dict) -> float:
         return 0
 
 
+def calculate_macd_quality(data: pd.DataFrame, current_price: float) -> float:
+    """
+    Calculate quality score based on MACD, Signal line, and current price relationship
+    Returns quality score (0-15)
+    """
+    # Get the latest values
+    data = generate_signals(data)
+    current_macd = data['macd'].iloc[-1]
+    current_signal = data['macd_signal'].iloc[-1]
+    last_close = data['close'].iloc[-1]
+
+    # Calculate MACD histogram
+    histogram = current_macd - current_signal
+
+    # Calculate price momentum
+    price_change_percent = ((current_price - last_close) / last_close) * 100
+
+    # Calculate recent MACD momentum (last 5 periods)
+    macd_change = data['macd'].diff().tail(5).mean()
+
+    # Initialize quality score
+    quality_score = 0
+
+    # Score based on MACD vs Signal position (0-6 points)
+    if current_macd > current_signal:  # Bullish MACD
+        if price_change_percent > 0:  # Price confirms bullish signal
+            quality_score += 6
+        else:  # Price diverges from signal
+            quality_score += 3
+    else:  # Bearish MACD
+        if price_change_percent < 0:  # Price confirms bearish signal
+            quality_score += 6
+        else:  # Price diverges from signal
+            quality_score += 3
+
+     # Score based on histogram strength (0-5 points)
+    hist_strength = abs(histogram)
+    if hist_strength > 0.5:
+        quality_score += 5
+    elif hist_strength > 0.2:
+        quality_score += 3
+    else:
+        quality_score += 1
+
+    # Score based on price-MACD alignment (0-4 points)
+    if (price_change_percent > 0 and macd_change > 0) or \
+       (price_change_percent < 0 and macd_change < 0):
+        quality_score += 4  # Price and MACD moving in same direction
+    elif abs(price_change_percent) < 0.1:
+        quality_score += 2  # Price relatively stable
+
+    # Cap the total score at 15
+    return min(15, quality_score)
+
+
 def calculate_setup_quality(
     data: pd.DataFrame,
     volume_score: float,
@@ -240,7 +380,6 @@ def calculate_setup_quality(
     current_rsi = rsi.iloc[-1]
 
     # Calculate Pivot Points
-    pivots = calculate_pivot_points(data)
     current_price = data['close'].iloc[-1]
 
     # Enhanced volume quality (0-30 points)
@@ -252,31 +391,31 @@ def calculate_setup_quality(
         (volume_score * 0.4) +
         (volume_ratio * 30 * 0.4) +
         (volume_trend_score * 0.2)
-    ) * 0.3  # 30 points max
+    ) * 0.2  # 20 points max
 
     # Get RSI quality (0-20 points)
     rsi_quality = calculate_rsi_quality(current_rsi)
 
-    # Get Pivot point quality (0-15 points)
-    pivot_quality = calculate_pivot_quality(current_price, pivots)
+    # Get MACD point quality (0-15 points)
+    macd_quality = calculate_macd_quality(data, current_price)
 
     # Price distance quality (0-15 points)
-    distance_quality = max(0, (1 - price_distance * 10) * 15)
+    distance_quality = max(0, (1 - price_distance * 10) * 10)
 
     # Order block height quality (0-10 points)
-    height_quality = max(0, (1 - ob_height_percent / 5) * 10)
+    height_quality = max(0, (1 - ob_height_percent / 5) * 25)
 
     # Stop loss quality (0-10 points)
-    stop_quality = max(0, (1 - stop_distance * 20) * 10)
+    stop_quality = max(0, (1 - stop_distance * 20) * 5)
 
     # Calculate total quality score (0-100)
     total_quality = (
-        volume_quality +      # 30 points
+        volume_quality +      # 25 points
         rsi_quality +         # 20 points
-        pivot_quality +       # 15 points
-        distance_quality +    # 15 points
-        height_quality +      # 10 points
-        stop_quality         # 10 points
+        macd_quality +  # 10 points
+        distance_quality +    # 10 points
+        height_quality +      # 30 points
+        stop_quality         # 5 points
     )
 
     return round(total_quality, 1)
@@ -305,7 +444,7 @@ def analyze_volume_patterns(data: pd.DataFrame, lookback: int = 20) -> dict:
 
     # Calculate Volume RSI
 
-    volume_rsi = calculate_rsi(recent_data['volume'], periods=14)
+    volume_rsi = calculate_rsi(recent_data['volume'], rsi_length=14)
     current_volume_rsi = volume_rsi.iloc[-1]
 
     # Calculate volume score with RSI integration
@@ -820,21 +959,58 @@ def detect_ob_trend_reversal(data: pd.DataFrame, ob_results: dict, current_trend
 
 def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
     """
-    Calculate price and volume velocity (rate of change)
-
-    Returns:
-    - Dictionary with velocity metrics
+    Calculate price and volume velocity with MA and RSI confirmations
     """
-    # Price velocity
-    price_changes = data['close'].pct_change(periods=1).tail(lookback)
-    # Current candle velocity
-    current_price_velocity = price_changes.iloc[-1] * 100
-    avg_price_velocity = price_changes.mean() * 100        # Average velocity
+    # Calculate MAs
+    data['SMA50'] = data['close'].rolling(window=50).mean()
+    data['EMA5'] = data['close'].ewm(span=5, adjust=False).mean()
+    data['EMA12'] = data['close'].ewm(span=12, adjust=False).mean()
 
-    # Volume velocity
+    # Calculate RSI
+    rsi = calculate_rsi(data)
+    current_rsi = rsi.iloc[-1] - 5
+
+    # Get current values
+    current_price = data['close'].iloc[-1]
+    current_sma50 = data['SMA50'].iloc[-1]
+    current_ema5 = data['EMA5'].iloc[-1]
+    current_ema12 = data['EMA12'].iloc[-1]
+
+    # Price velocity calculation
+    price_changes = data['close'].pct_change(periods=1).tail(lookback)
+    current_price_velocity = price_changes.iloc[-1] * 100
+    avg_price_velocity = price_changes.mean() * 100
+
+    # Volume velocity calculation
     volume_changes = data['volume'].pct_change(periods=1).tail(lookback)
     current_volume_velocity = volume_changes.iloc[-1] * 100
     avg_volume_velocity = volume_changes.mean() * 100
+
+    # MA Crossover detection
+    ema_crossover = (
+        data['EMA5'].iloc[-2] <= data['EMA12'].iloc[-2] and
+        current_ema5 > current_ema12
+    )
+
+    # Market conditions
+    conditions = {
+        'above_sma50': current_price > current_sma50,
+        'ema_crossover': ema_crossover,
+        'rsi_above_50': current_rsi > 50,
+        'rsi_oversold': current_rsi < 30,
+        'rsi_overbought': current_rsi > 70
+    }
+
+    # Generate signals based on conditions
+    signals = []
+    if conditions['above_sma50'] and conditions['rsi_above_50']:
+        signals.append("Price above SMA50 with bullish RSI")
+    if conditions['ema_crossover']:
+        signals.append("EMA5 crossed above EMA12")
+    if conditions['rsi_oversold']:
+        signals.append("RSI indicates oversold")
+    if conditions['rsi_overbought']:
+        signals.append("RSI indicates overbought")
 
     return {
         'price': {
@@ -848,7 +1024,22 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
             'average': avg_volume_velocity,
             'acceleration': current_volume_velocity - avg_volume_velocity,
             'condition': 'INCREASING' if current_volume_velocity > avg_volume_velocity else 'DECREASING'
-        }
+        },
+        'ma_analysis': {
+            'above_sma50': conditions['above_sma50'],
+            'ema_crossover': conditions['ema_crossover'],
+            'current_price': current_price,
+            'sma50': current_sma50,
+            'ema5': current_ema5,
+            'ema12': current_ema12
+        },
+        'rsi_analysis': {
+            'current': current_rsi,
+            'above_50': conditions['rsi_above_50'],
+            'oversold': conditions['rsi_oversold'],
+            'overbought': conditions['rsi_overbought']
+        },
+        'signals': signals
     }
 
 
@@ -917,7 +1108,7 @@ def analyze_trading_setup(data, swing_hl):
     ob_results = smc.ob(data, swing_hl)
 
     # Add velocity analysis
-    velocity = calculate_velocity(data, 10)
+    velocity = calculate_velocity(data, 50)
 
     # Analyze each order block
     for i in range(len(ob_results)):
@@ -1140,12 +1331,9 @@ def analyze_trading_setup(data, swing_hl):
     #         print(f"Entry price: {setup['entry_prices']['moderate']:.2f}")
     #         print(f"Current price: {current_price:.2f}")
     #         print(f"{'='*50}")
-    rsi = calculate_rsi(data)
-    current_rsi = rsi.iloc[-1]
     return {
         "trade_setups": trade_setups,
         "current_price": current_price,
-        "rsi": current_rsi,
         "velocity": velocity,
         "current_volume": data['volume'].iloc[-1],
         "current_volume_ratio": data['volume'].iloc[-1] / data['volume'].tail(20).mean(),

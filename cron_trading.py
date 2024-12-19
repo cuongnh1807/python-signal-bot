@@ -1,6 +1,6 @@
 from binance_data_fetcher import BinanceDataFetcher
 from telegram_bot import TelegramBot
-from strategy import analyze_trading_setup
+from strategy import analyze_trading_setup, find_closest_signal
 from smartmoneyconcepts.smc import smc
 import time
 from datetime import datetime, timedelta
@@ -9,6 +9,8 @@ import asyncio
 from dotenv import load_dotenv
 import os
 import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
 
 # Configure logging
 logging.basicConfig(
@@ -63,12 +65,30 @@ class TradingBot:
 
             # Calculate swing highs/lows
             swing_hl = smc.swing_highs_lows(df, swing_length=5)
+
             # Analyze trading setups
             trade_setups = analyze_trading_setup(df, swing_hl)
+            result = find_closest_signal(df, trade_setups['current_price'])
+            # Format Fibonacci levels in one line
+            # Format Fibonacci levels in one line
+            # Format Fibonacci levels in one line
+            # fib_str = ' | '.join(
+            #     [f"{row['Level']}: {row['Price']:.2f}" for _, row in fib_levels.iterrows()])
+            # print(fib_str)
+            message = (
+                # ... existing message content ...
+                f"• Short-term Signal: {'BUY' if result['signal'] == 1 else 'SELL'}\n"
+                f"• Suggested Entry: {result['entry_price']:.2f}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                # "🎯 Fibonacci Levels: \n"
+                # f"{fib_str}\n"
+            )
+
+            # Add Fibonacci levels to message
 
             if trade_setups['trade_setups']:
                 # Send trading setups through Telegram
-                await self.telegram_bot.send_trading_setup(trade_setups, symbol, interval, trade_setups['rsi'])
+                await self.telegram_bot.send_trading_setup(trade_setups, symbol, interval, rsi=trade_setups['rsi'], header_message=message)
                 logger.info(
                     f"Sent {len(trade_setups)} trading setups for {symbol} {interval}")
             else:
@@ -76,6 +96,7 @@ class TradingBot:
 
         except Exception as e:
             logger.exception(e)
+
             error_msg = f"Error analyzing {symbol} {interval}: {str(e)}"
             logger.error(error_msg)
             await self.telegram_bot.send_error_alert(error_msg)
@@ -97,27 +118,25 @@ class TradingBot:
             logger.error(error_msg)
             await self.telegram_bot.send_error_alert(error_msg)
 
-    async def run_periodic(self, interval_seconds: int):
-        """Run periodic scans with specified interval"""
-        while True:
-            await self.scan_markets()
-            await asyncio.sleep(interval_seconds)
-
 
 async def main():
     """Main function to run the trading bot"""
     try:
         bot = TradingBot()
 
+        # await bot.scan_markets()
+
         # Create tasks for different timeframe scans
-        tasks = [
-            bot.run_periodic(240),  # 3 minutes for 15m timeframe
-        ]
+        scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
 
-        # Run initial scan
+        # # Schedule the scan_markets to run at minutes 1, 16, 31, 46
+        scheduler.add_job(bot.scan_markets, 'cron', minute='1,16,31,46')
 
-        # Run periodic scans
-        await asyncio.gather(*tasks)
+        scheduler.start()
+
+        # Keep the main program running
+        while True:
+            await asyncio.sleep(1)
 
     except Exception as e:
         logger.error(f"Fatal error in main: {str(e)}")

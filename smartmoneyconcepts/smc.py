@@ -1122,3 +1122,36 @@ class smc:
 
         result = pd.DataFrame(data, index=resampled.index)
         return result[columns]
+
+    @classmethod
+    def fibonacci_retracement(cls, ohlc: DataFrame, swing_highs_lows: DataFrame) -> DataFrame:
+        """
+        Calculate Fibonacci retracement levels based on swing highs and lows.
+
+        Parameters:
+        - ohlc: DataFrame containing OHLC data
+        - swing_highs_lows: DataFrame containing swing high and low levels
+
+        Returns:
+        - DataFrame with Fibonacci levels
+        """
+        # Extract swing high and low levels
+        swing_high = swing_highs_lows[swing_highs_lows['HighLow'] == 1]['Level'].max(
+        )
+        swing_low = swing_highs_lows[swing_highs_lows['HighLow']
+                                     == -1]['Level'].min()
+
+        # Calculate Fibonacci levels
+        difference = swing_high - swing_low
+        levels = {
+            "0%": swing_high,
+            "23.6%": swing_high - difference * 0.236,
+            "38.2%": swing_high - difference * 0.382,
+            "50%": swing_high - difference * 0.5,
+            "61.8%": swing_high - difference * 0.618,
+            "100%": swing_low
+        }
+
+        fib_levels = pd.DataFrame(
+            list(levels.items()), columns=['Level', 'Price'])
+        return fib_levels

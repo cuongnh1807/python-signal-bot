@@ -61,11 +61,12 @@ class TelegramBot:
         current_time = datetime.now(pytz.UTC).astimezone(ict_tz)
         return current_time.strftime('%Y-%m-%d %H:%M:%S ICT')
 
-    async def send_trading_setup(self, trade_setups, symbol: str, timeframe: str = '15m', rsi: float = None):
+    async def send_trading_setup(self, trade_setups, symbol: str, timeframe: str = '15m', rsi: float = None, header_message: str = None):
         """Send all trading setups in a single formatted message"""
         try:
             setups = trade_setups['trade_setups']
             velocity = trade_setups['velocity']
+
             # Filter out setups that are too far or have distance warning
             filtered_setups = [
                 setup for setup in setups
@@ -74,13 +75,6 @@ class TelegramBot:
                 "Entry far from current price - Higher risk" not in setup.get(
                     'warning_messages', [])
             ]
-
-            # Sort setups by proximity and quality
-            filtered_setups.sort(key=lambda x: (
-                x['price_distance'],          # Primary: closest to price
-                -x['setup_quality'],          # Secondary: highest quality
-                -x['volume_score']            # Tertiary: highest volume
-            ))
 
             # Limit to top 3 closest setups
             # filtered_setups = filtered_setups[:3]
@@ -97,49 +91,50 @@ class TelegramBot:
 
             if filtered_setups:
                 vol_analysis = filtered_setups[0].get('volume_analysis', {})
-                current_price = filtered_setups[0].get('current_price', 'N/A')
+                current_price = filtered_setups[0].get('current_price', 0)
                 current_trend = filtered_setups[0].get('current_trend', 'N/A')
 
                 # Format volume trend indicators
-                volume_emoji = "📈" if vol_analysis.get(
-                    'volume_trend', 0) > 5 else "📉" if vol_analysis.get('volume_trend', 0) < -5 else "➡️"
-                pressure_emoji = "🟢" if vol_analysis.get(
-                    'pressure_ratio', 1) > 1.2 else "🔴" if vol_analysis.get('pressure_ratio', 1) < 0.83 else "⚪️"
+                volume_trend_value = vol_analysis.get('volume_trend', 0)
+                volume_emoji = "📈" if volume_trend_value > 5 else "📉" if volume_trend_value < -5 else "➡️"
 
+                pressure_ratio = vol_analysis.get('pressure_ratio', 1)
+                pressure_emoji = "🟢" if pressure_ratio > 1.2 else "🔴" if pressure_ratio < 0.83 else "⚪️"
                 message = (
                     f"💹 <b>Market Status</b>\n"
                     f"• Symbol: {symbol}\n"
                     f"• Timeframe: {timeframe}\n"
-                    f"• RSI: {rsi:.2f}\n"
                     f"• Current Price: {current_price:.2f}\n"
                     f"• Market Trend: {self.get_trend_emoji(current_trend)} {current_trend}\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"📊 <b>Volume Analysis</b>\n"
-                    f"• Volume Score: {vol_analysis.get('volume_score', 0)}/100\n"
-                    f"• Volume Trend: {volume_emoji} {vol_analysis.get('volume_trend', 0):.1f}%\n"
+                    f"• Volume Trend: {volume_emoji} {volume_trend_value:.1f}%\n"
                     f"• Buy/Sell Ratio: {vol_analysis.get('buy_ratio', 0):.1f}% / {vol_analysis.get('sell_ratio', 0):.1f}%\n"
                     f"• Pressure: {pressure_emoji} {vol_analysis.get('analysis', {}).get('pressure', 'N/A')}\n"
                     f"• Current Volume: {trade_setups.get('current_volume', 0):.1f}\n"
                     f"• Current Volume Ratio: {trade_setups.get('current_volume_ratio', 0):.1f}\n"
-                    f"• Volume Dominance: {vol_analysis.get('analysis', {}).get('dominance', 'N/A')}\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"⚡️ <b>Momentum Analysis</b>\n"
                     f"• Price: {velocity.get('price', {}).get('current', 0):.2f}% "
                     f"({'↗️' if velocity.get('price', {}).get('condition') == 'INCREASING' else '↘️'})\n"
                     f"• Volume: {velocity.get('volume', {}).get('current', 0):.2f}% "
                     f"({'📈' if velocity.get('volume', {}).get('condition') == 'INCREASING' else '📉'})\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "🎯 <b>Closest Trading Setups</b>\n"
-                    f"📊 Valid Setups Within Range: {len(filtered_setups)}\n"
-                    f"📈 Bullish: {len(bullish_setups)} | "
-                    f"📉 Bearish: {len(bearish_setups)}\n"
+                    f"• MA Status: {'Above SMA50 ↗️' if velocity.get('ma_analysis', {}).get('above_sma50') else 'Below SMA50 ↘️'}\n"
+                    f"• EMA Signal: {'✅ Bullish Cross' if velocity.get('ma_analysis', {}).get('ema_crossover') else '❌ No Cross'}\n"
+                    f"• RSI ({velocity.get('rsi_analysis', {}).get('current', 0):.1f}): "
+                    f"{'🔴 Overbought' if velocity.get('rsi_analysis', {}).get('overbought') else '🟢 Oversold' if velocity.get('rsi_analysis', {}).get('oversold') else '⚪️ Neutral'}\n"
+                    "\n🔔 <b>Signals</b>\n"
+                    f"{chr(10).join(f'• {signal}' for signal in velocity.get('signals', []) or ['No signals detected'])}\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                 )
+                message += header_message
+                print(message)
             else:
                 message = (
                     f"🔍 <b>Trading Analysis: {symbol} {timeframe}</b>\n\n"
                     "No valid trading setups within optimal range detected."
                 )
+            print(message)
 
             def format_setup(setup, index):
                 # Add distance emoji based on price distance
@@ -157,7 +152,6 @@ class TelegramBot:
                     )
 
                 # Volume comparison section
-
                 volume_section = (
                     f"📊 <b>Volume Analysis</b>\n"
                     f"• OB Volume: {setup.get('ob_volume', 'N/A')}\n"
@@ -240,6 +234,7 @@ class TelegramBot:
                 await self.send_message(message)
 
         except Exception as e:
+            print(e)
             logging.error(f"Error sending trading setups: {str(e)}")
             await self.send_error_alert(f"Failed to send trading setups: {str(e)}")
 

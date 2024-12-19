@@ -2,6 +2,8 @@ from binance.client import Client
 import pandas as pd
 from datetime import datetime, timedelta
 from smartmoneyconcepts import smc
+from strategy import calculate_rsi, find_closest_signal, generate_signals
+from binance.um_futures import UMFutures
 
 
 def get_binance_data(symbol='BTCUSDT', interval='15m', lookback='1 day ago UTC'):
@@ -34,44 +36,43 @@ def get_binance_data(symbol='BTCUSDT', interval='15m', lookback='1 day ago UTC')
 
     # Keep only the OHLCV columns
     df = df[['open', 'high', 'low', 'close', 'volume']]
+    current_price = df['close'].iloc[-1]
 
-    return df
+    return df, current_price
 
 
 def main():
+    client = UMFutures()
+
     # Get 15m data
-    df_15m = get_binance_data(interval='15m', lookback='1 day ago UTC')
+    df_15m, current_price = get_binance_data(
+        interval='15m', lookback='7 day ago UTC')
     print("\n15m BTC Data:")
-    print(df_15m.head())
+    df_15m = generate_signals(df_15m)
+
+    # Calculate swing highs and lows
+    swing_highs_lows = smc.swing_highs_lows(df_15m.tail(300), swing_length=5)
+
+    # Calculate Fibonacci levels
+    fib_levels = smc.fibonacci_retracement(df_15m, swing_highs_lows)
+
+    # Print Fibonacci levels
+    print("\nFibonacci Retracement Levels:")
+    print(fib_levels)
 
     # Get 1h data
-    df_1h = get_binance_data(interval='1h', lookback='1 day ago UTC')
-    print("\n1h BTC Data:")
-    print(df_1h.head())
 
-    # Test SMC functions
-    print("\nTesting SMC functions on 15m data:")
+    result = find_closest_signal(df_15m, current_price)
 
-    # Get swing highs and lows
-    swing_data = smc.swing_highs_lows(df_15m)
-    print("\nSwing Highs and Lows:")
-    print(swing_data[swing_data['HighLow'].notna()].head())
+    current_rsi = (calculate_rsi(df_15m, rsi_length=14, ma_type="SMA")
+                   ).iloc[-1]  # Get the last RSI value
+    print(f"\nCurrent RSI: {current_rsi:.2f}")
+    print(result)
 
-    # Get Fair Value Gaps
-    fvg_data = smc.fvg(df_15m)
-    print("\nFair Value Gaps:")
-    print(fvg_data[fvg_data['FVG'].notna()].head())
+    btc_dom = client.ticker_price("BTCDOMUSDT")
+    # btc_dominance = float(btc_dom['markPrice'])
 
-    # Get Order Blocks
-    ob_data = smc.ob(df_15m, swing_data)
-    print("\nOrder Blocks:")
-    print(ob_data.head())
-    print(ob_data[ob_data['OB'].notna()].head())
-
-    # Get Previous High/Low
-    prev_hl = smc.previous_high_low(df_15m)
-    print("\nPrevious High/Low:")
-    print(prev_hl.head())
+    print(btc_dom)
 
 
 if __name__ == "__main__":

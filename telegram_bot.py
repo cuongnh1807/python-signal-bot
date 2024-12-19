@@ -128,13 +128,11 @@ class TelegramBot:
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                 )
                 message += header_message
-                print(message)
             else:
                 message = (
                     f"🔍 <b>Trading Analysis: {symbol} {timeframe}</b>\n\n"
                     "No valid trading setups within optimal range detected."
                 )
-            print(message)
 
             def format_setup(setup, index):
                 # Add distance emoji based on price distance

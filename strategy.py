@@ -90,32 +90,74 @@ def generate_signals(data: pd.DataFrame) -> pd.DataFrame:
 
 
 def find_closest_signal(data: pd.DataFrame, current_price: float) -> dict:
-    """Find the closest signal to the current price and determine entry price."""
+    """Find the closest signal and determine safety rating"""
     # Filter signals
-    # Create a copy to avoid SettingWithCopyWarning
     signals = data[data['signal'] != 0].copy()
 
     if signals.empty:
-        return {"signal": None, "trend": "No signals available", "entry_price": None}
+        return {
+            "signal": None, 
+            "trend": "No signals available", 
+            "entry_price": None,
+            "safety_rating": None
+        }
 
-    # Find the closest signal
-    signals.loc[:, 'price_distance'] = (
-        signals['close'] - current_price).abs()  # Use .loc to set values
+    # Calculate price distance and other metrics
+    signals.loc[:, 'price_distance'] = (signals['close'] - current_price).abs() / current_price * 100
     closest_signal = signals.loc[signals['price_distance'].idxmin()]
 
-    # Determine short trend based on last few closing prices
+    # Calculate safety rating (0-100)
+    safety_factors = {
+        'price_distance': {
+            'weight': 0.4,
+            'score': max(0, 100 - (closest_signal['price_distance'] * 10))  # Lower distance = higher score
+        },
+        'rsi_alignment': {
+            'weight': 0.3,
+            'score': 100 if (
+                (closest_signal['signal'] == 1 and closest_signal['rsi'] < 70) or  # Not overbought for buy
+                (closest_signal['signal'] == -1 and closest_signal['rsi'] > 30)    # Not oversold for sell
+            ) else 0
+        },
+        'macd_alignment': {
+            'weight': 0.3,
+            'score': 100 if (
+                (closest_signal['signal'] == 1 and closest_signal['macd'] > closest_signal['macd_signal']) or
+                (closest_signal['signal'] == -1 and closest_signal['macd'] < closest_signal['macd_signal'])
+            ) else 0
+        }
+    }
+
+    # Calculate total safety score
+    safety_score = sum(factor['weight'] * factor['score'] for factor in safety_factors.values())
+
+    # Determine safety rating
+    if safety_score >= 80:
+        safety_rating = "VERY_SAFE"
+        safety_emoji = "🟢"
+    elif safety_score >= 60:
+        safety_rating = "SAFE"
+        safety_emoji = "🟡"
+    elif safety_score >= 40:
+        safety_rating = "MODERATE"
+        safety_emoji = "🟠"
+    elif safety_score >= 20:
+        safety_rating = "RISKY"
+        safety_emoji = "🔴"
+    else:
+        safety_rating = "DANGEROUS"
+        safety_emoji = "⛔"
+
+    # Determine trend based on recent prices
     recent_prices = data['close'].tail(5)
     trend = "UPTREND" if recent_prices.is_monotonic_increasing else "DOWNTREND"
 
-    # Calculate entry price based on signal price
+    # Calculate entry price based on signal
     if closest_signal['signal'] == 1:  # Buy signal
-        entry_price = closest_signal['close'] * \
-            0.99  # 1% below the signal price
+        entry_price = closest_signal['close'] * 0.99  # 1% below signal price
     elif closest_signal['signal'] == -1:  # Sell signal
-        entry_price = closest_signal['close'] * \
-            1.01  # 1% above the signal price
+        entry_price = closest_signal['close'] * 1.01  # 1% above signal price
     else:
-        # Default to signal price if no action
         entry_price = closest_signal['close']
 
     return {
@@ -125,7 +167,18 @@ def find_closest_signal(data: pd.DataFrame, current_price: float) -> dict:
         "trend": trend,
         "rsi": closest_signal['rsi'],
         "macd": closest_signal['macd'],
-        "macd_signal": closest_signal['macd_signal']
+        "macd_signal": closest_signal['macd_signal'],
+        "price_distance": closest_signal['price_distance'],
+        "safety_score": round(safety_score, 1),
+        "safety_rating": safety_rating,
+        "safety_emoji": safety_emoji,
+        "safety_factors": {
+            name: {
+                'score': factor['score'],
+                'contribution': round(factor['weight'] * factor['score'], 1)
+            }
+            for name, factor in safety_factors.items()
+        }
     }
 
 

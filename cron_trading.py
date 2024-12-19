@@ -97,6 +97,7 @@ class TradingBot:
                 # ... existing message content ...
                 f"• Short-term Signal: {'BUY' if result['signal'] == 1 else 'SELL'}\n"
                 f"• Suggested Entry: {result['entry_price']:.2f}\n"
+                f"• Safety: {result['safety_emoji']} {result['safety_rating']} ({result['safety_score']:.1f}%)\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 # "🎯 Fibonacci Levels: \n"
                 # f"{fib_str}\n"
@@ -151,8 +152,10 @@ async def main():
         # Create tasks for different timeframe scans
         scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
 
-        # # Schedule the scan_markets to run at minutes 1, 16, 31, 46
-        scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
+        # Schedule the scan_markets to run at minutes 1, 16, 31, 46
+        # scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
+        #                   second='30')
+        scheduler.add_job(bot.scan_markets, 'cron', minute='14,29,44,59',  # Run every 10 minutes
                           second='30')
 
         scheduler.start()

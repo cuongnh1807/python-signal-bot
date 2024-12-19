@@ -10,5 +10,4 @@ pytz==2024.1
 python-telegram-bot==20.0
 schedule>=1.1.0
 python-dotenv==1.0.1
-binance-futures-connector==1.0.1
 apscheduler==3.10.1

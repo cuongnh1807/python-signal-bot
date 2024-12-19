@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import datetime, timedelta
 from smartmoneyconcepts import smc
 from strategy import calculate_rsi, find_closest_signal, generate_signals
-from binance.um_futures import UMFutures
 
 
 def get_binance_data(symbol='BTCUSDT', interval='15m', lookback='1 day ago UTC'):
@@ -42,7 +41,6 @@ def get_binance_data(symbol='BTCUSDT', interval='15m', lookback='1 day ago UTC')
 
 
 def main():
-    client = UMFutures()
 
     # Get 15m data
     df_15m, current_price = get_binance_data(
@@ -69,10 +67,7 @@ def main():
     print(f"\nCurrent RSI: {current_rsi:.2f}")
     print(result)
 
-    btc_dom = client.ticker_price("BTCDOMUSDT")
     # btc_dominance = float(btc_dom['markPrice'])
-
-    print(btc_dom)
 
 
 if __name__ == "__main__":

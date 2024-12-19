@@ -106,7 +106,7 @@ class TradingBot:
 
             if trade_setups['trade_setups']:
                 # Send trading setups through Telegram
-                await self.telegram_bot.send_trading_setup(trade_setups, symbol, interval, rsi=trade_setups['rsi'], header_message=message)
+                await self.telegram_bot.send_trading_setup(trade_setups, symbol, interval, header_message=message)
                 logger.info(
                     f"Sent {len(trade_setups)} trading setups for {symbol} {interval}")
             else:

@@ -1,0 +1,56 @@
+{
+  "name": "trading-signal-bot",
+  "type": "WEB",
+  "strategy": {
+    "type": "DEPLOYMENT_STRATEGY_TYPE_ROLLING"
+  },
+  "routes": [
+    {
+      "port": 8000,
+      "path": "/"
+    }
+  ],
+  "ports": [
+    {
+      "port": 8000,
+      "protocol": "http"
+    }
+  ],
+  "env": [
+    {
+      "key": "TELEGRAM_BOT_TOKEN",
+      "value": "from_secrets"
+    },
+    {
+      "key": "TELEGRAM_CHAT_ID",
+      "value": "from_secrets"
+    },
+    {
+      "key": "TZ",
+      "value": "UTC"
+    }
+  ],
+  "regions": ["fra"],
+  "scalings": [
+    {
+      "scopes": ["region:fra"],
+      "min": 1,
+      "max": 1,
+      "targets": []
+    }
+  ],
+  "instance_types": [
+    {
+      "scopes": ["region:fra"],
+      "type": "free"
+    }
+  ],
+  "git": {
+    "repository": "github.com/yourusername/trading-signal-bot",
+    "branch": "main",
+    "no_deploy_on_push": false,
+    "docker": {
+      "dockerfile": "Dockerfile"
+    }
+  }
+}

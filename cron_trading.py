@@ -11,6 +11,9 @@ import os
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from aiohttp import web
+import asyncio
+
 
 # Configure logging
 logging.basicConfig(
@@ -22,6 +25,21 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+async def health_check(request):
+    """Simple health check endpoint"""
+    return web.Response(text="OK", status=200)
+
+
+async def start_web_server():
+    """Start web server for health checks"""
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8000)
+    await site.start()
 
 
 class TradingBot:
@@ -122,6 +140,8 @@ class TradingBot:
 async def main():
     """Main function to run the trading bot"""
     try:
+        await start_web_server()
+
         bot = TradingBot()
 
         # await bot.scan_markets()
@@ -147,6 +167,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
+
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Trading bot terminated by user")

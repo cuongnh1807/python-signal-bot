@@ -13,5 +13,8 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy project files
 COPY . .
 
+EXPOSE 8000
+
+
 # Command to run the bot
 CMD ["python", "cron_trading.py"]

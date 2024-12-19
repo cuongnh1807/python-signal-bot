@@ -44,9 +44,10 @@ def main():
 
     # Get 15m data
     df_15m, current_price = get_binance_data(
-        interval='15m', lookback='7 day ago UTC')
+        interval='15m', lookback='1 day ago UTC')
     print("\n15m BTC Data:")
     df_15m = generate_signals(df_15m)
+    print(df_15m['volume'].iloc[-1])
 
     # Calculate swing highs and lows
     swing_highs_lows = smc.swing_highs_lows(df_15m.tail(300), swing_length=5)

@@ -74,7 +74,7 @@ class TelegramBot:
             filtered_setups = [
                 setup for setup in setups
                 # Only include setups within 3% of current price
-                if setup['price_distance'] <= 3.0 and
+                if setup['price_distance'] <= 4.0 and
                 "Entry far from current price - Higher risk" not in setup.get(
                     'warning_messages', [])
             ]

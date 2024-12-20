@@ -87,31 +87,33 @@ class TradingBot:
             # Analyze trading setups
             trade_setups = analyze_trading_setup(df, swing_hl)
             result = find_closest_signal(df, trade_setups['current_price'])
-            # Format Fibonacci levels in one line
-            # Format Fibonacci levels in one line
-            # Format Fibonacci levels in one line
-            # fib_str = ' | '.join(
-            #     [f"{row['Level']}: {row['Price']:.2f}" for _, row in fib_levels.iterrows()])
-            # print(fib_str)
+
+            # Create signal lines
+            signal_lines = []
+            for signal in result['signals']:
+
+                signal_line = (
+                    f"{signal['signal_type']} | "
+                    f"Entry: {signal['entry_price']:.2f} | "
+                    f"Distance: {signal['price_distance']:.1f}% | "
+                    f"{signal['safety_emoji']} {signal['safety_score']:.1f}%"
+                )
+                signal_lines.append(signal_line)
+
             message = (
-                # ... existing message content ...
-                f"• Short-term Signal: {'BUY' if result['signal'] == 1 else 'SELL'}\n"
-                f"• Suggested Entry: {result['entry_price']:.2f}\n"
-                f"• Safety: {result['safety_emoji']} {result['safety_rating']} ({result['safety_score']:.1f}%)\n"
+                f"📊 <b>Signal Analysis</b>\n"
+                f"• Current Price: {result['current_price']:.2f}\n"
+                f"• Market Trend: {result['trend']}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
-                # "🎯 Fibonacci Levels: \n"
-                # f"{fib_str}\n"
+                f"🎯 <b>Trading Signals</b>\n"
+                f"{chr(10).join(signal_lines)}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
             )
 
-            # Add Fibonacci levels to message
-
-            if trade_setups['trade_setups']:
-                # Send trading setups through Telegram
-                await self.telegram_bot.send_trading_setup(trade_setups, symbol, interval, header_message=message)
-                logger.info(
-                    f"Sent {len(trade_setups)} trading setups for {symbol} {interval}")
-            else:
-                logger.info(f"No valid setups found for {symbol} {interval}")
+            # Send trading setups through Telegram
+            await self.telegram_bot.send_trading_setup(trade_setups, symbol, interval, header_message=message)
+            logger.info(
+                f"Sent {len(trade_setups)} trading setups for {symbol} {interval}")
 
         except Exception as e:
             logger.exception(e)
@@ -141,24 +143,24 @@ class TradingBot:
 async def main():
     """Main function to run the trading bot"""
     try:
-        await start_web_server()
+        # await start_web_server()
 
         bot = TradingBot()
 
-        # await bot.scan_markets()
+        await bot.scan_markets()
 
         # await bot.scan_markets()
 
         # Create tasks for different timeframe scans
-        scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
+        # scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
 
-        # Schedule the scan_markets to run at minutes 1, 16, 31, 46
-        # scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
+        # # Schedule the scan_markets to run at minutes 1, 16, 31, 46
+        # # scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
+        # #                   second='30')
+        # scheduler.add_job(bot.scan_markets, 'cron', minute='14,29,44,59',  # Run every 10 minutes
         #                   second='30')
-        scheduler.add_job(bot.scan_markets, 'cron', minute='14,29,44,59',  # Run every 10 minutes
-                          second='30')
 
-        scheduler.start()
+        # scheduler.start()
 
         # Keep the main program running
         while True:

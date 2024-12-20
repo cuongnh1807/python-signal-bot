@@ -70,7 +70,7 @@ def calculate_macd(data: pd.DataFrame, short_window: int = 12, long_window: int 
 
 
 def generate_signals(data: pd.DataFrame) -> pd.DataFrame:
-    """Generate trading signals based on RSI and MACD."""
+    """Generate trading signals based on RSI and MACD crossovers"""
     # Calculate RSI
     data['rsi'] = calculate_rsi(data)
 
@@ -79,107 +79,260 @@ def generate_signals(data: pd.DataFrame) -> pd.DataFrame:
     data['macd'] = macd_df['macd']
     data['macd_signal'] = macd_df['signal']
 
-    # Generate signals
-    data['signal'] = 0  # Default to no signal
-    data['signal'] = data.apply(lambda x: 1 if (
-        x['rsi'] < 30 and x['macd'] > x['macd_signal']) else x['signal'], axis=1)  # Buy signal
-    data['signal'] = data.apply(lambda x: -1 if (x['rsi'] > 70 and x['macd']
-                                < x['macd_signal']) else x['signal'], axis=1)  # Sell signal
+    # Calculate previous values for crossover detection
+    data['prev_macd'] = data['macd'].shift(1)
+    data['prev_signal'] = data['macd_signal'].shift(1)
+
+    # Initialize signal column
+    data['signal'] = 0
+
+    # Generate signals based on your TradingView logic
+    for i in range(1, len(data)):
+        # MACD Crossover detection
+        macd_crossover = (data['prev_macd'].iloc[i] <= data['prev_signal'].iloc[i] and
+                          data['macd'].iloc[i] > data['macd_signal'].iloc[i])
+
+        macd_crossunder = (data['prev_macd'].iloc[i] >= data['prev_signal'].iloc[i] and
+                           data['macd'].iloc[i] < data['macd_signal'].iloc[i])
+
+        # Buy conditions
+        if macd_crossover and data['rsi'].iloc[i] < 40:
+            data.loc[data.index[i], 'signal'] = 1  # Buy signal
+
+        # Sell conditions
+        elif macd_crossunder and data['rsi'].iloc[i] > 60:
+            data.loc[data.index[i], 'signal'] = -1  # Sell signal
+
+        # Short entry conditions
+        elif macd_crossunder and data['rsi'].iloc[i] < 40:
+            data.loc[data.index[i], 'signal'] = -2  # Short entry signal
+
+        # Short exit conditions
+        elif macd_crossover and data['rsi'].iloc[i] > 75:
+            data.loc[data.index[i], 'signal'] = 2  # Short exit signal
+
+    # Clean up temporary columns
+    data = data.drop(['prev_macd', 'prev_signal'], axis=1)
 
     return data
 
 
 def find_closest_signal(data: pd.DataFrame, current_price: float) -> dict:
-    """Find the closest signal and determine safety rating"""
+    """Find the 5 closest signals and determine safety rating based on RSI and momentum"""
     # Filter signals
     signals = data[data['signal'] != 0].copy()
 
     if signals.empty:
         return {
-            "signal": None, 
-            "trend": "No signals available", 
-            "entry_price": None,
-            "safety_rating": None
+            "signals": [],
+            "trend": "No signals available"
         }
 
-    # Calculate price distance and other metrics
-    signals.loc[:, 'price_distance'] = (signals['close'] - current_price).abs() / current_price * 100
-    closest_signal = signals.loc[signals['price_distance'].idxmin()]
+    # Calculate price distance and momentum
+    signals.loc[:, 'price_distance'] = (
+        signals['close'] - current_price).abs() / current_price * 100
+    signals['momentum'] = data['close'].pct_change(
+        periods=3) * 100  # 3-period momentum
 
-    # Calculate safety rating (0-100)
-    safety_factors = {
-        'price_distance': {
-            'weight': 0.4,
-            'score': max(0, 100 - (closest_signal['price_distance'] * 10))  # Lower distance = higher score
-        },
-        'rsi_alignment': {
-            'weight': 0.3,
-            'score': 100 if (
-                (closest_signal['signal'] == 1 and closest_signal['rsi'] < 70) or  # Not overbought for buy
-                (closest_signal['signal'] == -1 and closest_signal['rsi'] > 30)    # Not oversold for sell
-            ) else 0
-        },
-        'macd_alignment': {
-            'weight': 0.3,
-            'score': 100 if (
-                (closest_signal['signal'] == 1 and closest_signal['macd'] > closest_signal['macd_signal']) or
-                (closest_signal['signal'] == -1 and closest_signal['macd'] < closest_signal['macd_signal'])
-            ) else 0
+    # Get 5 closest signals
+    closest_signals = signals.nsmallest(3, 'price_distance')
+
+    signal_details = []
+    for _, signal in closest_signals.iterrows():
+        # Calculate MACD histogram
+        macd_hist = signal['macd'] - signal['macd_signal']
+
+        # Calculate safety factors
+        safety_factors = {
+            'rsi_safety': {
+                'weight': 0.4,
+                'score': calculate_rsi_safety_score(signal['rsi'], signal['signal'])
+            },
+            'momentum_safety': {
+                'weight': 0.4,
+                'score': calculate_momentum_safety_score(
+                    signal['momentum'],
+                    signal['signal'],
+                    signal['macd'],
+                    signal['macd_signal'],
+                    macd_hist
+                )
+            },
+            'price_distance': {
+                'weight': 0.2,
+                'score': max(0, 100 - (signal['price_distance'] * 10))
+            }
         }
-    }
 
-    # Calculate total safety score
-    safety_score = sum(factor['weight'] * factor['score'] for factor in safety_factors.values())
+        # Calculate total safety score
+        safety_score = sum(factor['weight'] * factor['score']
+                           for factor in safety_factors.values())
 
-    # Determine safety rating
-    if safety_score >= 80:
-        safety_rating = "VERY_SAFE"
-        safety_emoji = "🟢"
-    elif safety_score >= 60:
-        safety_rating = "SAFE"
-        safety_emoji = "🟡"
-    elif safety_score >= 40:
-        safety_rating = "MODERATE"
-        safety_emoji = "🟠"
-    elif safety_score >= 20:
-        safety_rating = "RISKY"
-        safety_emoji = "🔴"
-    else:
-        safety_rating = "DANGEROUS"
-        safety_emoji = "⛔"
+        # Determine signal type
+        signal_type = {
+            1: "LONG_ENTRY",
+            -1: "LONG_EXIT",
+            -2: "SHORT_ENTRY",
+            2: "SHORT_EXIT"
+        }.get(signal['signal'], "UNKNOWN")
 
-    # Determine trend based on recent prices
+        # Determine safety rating
+        if safety_score >= 80:
+            safety_rating = "VERY_SAFE"
+            safety_emoji = "🟢"
+        elif safety_score >= 60:
+            safety_rating = "SAFE"
+            safety_emoji = "🟡"
+        elif safety_score >= 40:
+            safety_rating = "MODERATE"
+            safety_emoji = "🟠"
+        elif safety_score >= 20:
+            safety_rating = "RISKY"
+            safety_emoji = "🔴"
+        else:
+            safety_rating = "DANGEROUS"
+            safety_emoji = "⛔"
+
+        signal_details.append({
+            "signal_type": signal_type,
+            "price": signal['close'],
+            "entry_price": calculate_entry_price(signal, safety_score),
+            "momentum": signal['momentum'],
+            "rsi": signal['rsi'],
+            "macd": signal['macd'],
+            "macd_signal": signal['macd_signal'],
+            "macd_hist": macd_hist,
+            "price_distance": signal['price_distance'],
+            "safety_score": round(safety_score, 1),
+            "safety_rating": safety_rating,
+            "safety_emoji": safety_emoji,
+            "safety_factors": {
+                name: {
+                    'score': factor['score'],
+                    'contribution': round(factor['weight'] * factor['score'], 1)
+                }
+                for name, factor in safety_factors.items()
+            }
+        })
+
+    # Sort signals by safety score
+    signal_details.sort(key=lambda x: x['safety_score'], reverse=True)
+
+    # Calculate overall trend
     recent_prices = data['close'].tail(5)
     trend = "UPTREND" if recent_prices.is_monotonic_increasing else "DOWNTREND"
-
-    # Calculate entry price based on signal
-    if closest_signal['signal'] == 1:  # Buy signal
-        entry_price = closest_signal['close'] * 0.99  # 1% below signal price
-    elif closest_signal['signal'] == -1:  # Sell signal
-        entry_price = closest_signal['close'] * 1.01  # 1% above signal price
-    else:
-        entry_price = closest_signal['close']
-
     return {
-        "signal": closest_signal['signal'],
-        "price": closest_signal['close'],
-        "entry_price": entry_price,
+        "signals": signal_details,
         "trend": trend,
-        "rsi": closest_signal['rsi'],
-        "macd": closest_signal['macd'],
-        "macd_signal": closest_signal['macd_signal'],
-        "price_distance": closest_signal['price_distance'],
-        "safety_score": round(safety_score, 1),
-        "safety_rating": safety_rating,
-        "safety_emoji": safety_emoji,
-        "safety_factors": {
-            name: {
-                'score': factor['score'],
-                'contribution': round(factor['weight'] * factor['score'], 1)
-            }
-            for name, factor in safety_factors.items()
-        }
+        "current_price": current_price,
+        "total_signals_found": len(signal_details),
+        "analysis_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
+
+
+def calculate_rsi_safety_score(rsi: float, signal: int) -> float:
+    """Calculate safety score based on RSI value and signal direction"""
+    if signal == 1:  # Buy signal
+        if rsi <= 30:
+            return 100  # Very safe for buying (oversold)
+        elif rsi <= 40:
+            return 80
+        elif rsi <= 50:
+            return 60
+        elif rsi <= 60:
+            return 40
+        elif rsi <= 70:
+            return 20
+        else:
+            return 0  # Dangerous (overbought)
+    else:  # Sell signal
+        if rsi >= 70:
+            return 100  # Very safe for selling (overbought)
+        elif rsi >= 60:
+            return 80
+        elif rsi >= 50:
+            return 60
+        elif rsi >= 40:
+            return 40
+        elif rsi >= 30:
+            return 20
+        else:
+            return 0  # Dangerous (oversold)
+
+
+def calculate_momentum_safety_score(momentum: float, signal: int, macd: float, macd_signal: float, macd_hist: float) -> float:
+    """
+    Calculate safety score based on price momentum and MACD
+
+    Parameters:
+    - momentum: Price momentum (rate of change)
+    - signal: Trade direction (1 for buy, -1 for sell)
+    - macd: MACD line value
+    - macd_signal: Signal line value
+    - macd_hist: MACD histogram value (macd - signal)
+    """
+    abs_momentum = abs(momentum)
+
+    # MACD Analysis (0-100 score)
+    macd_score = 0
+    if signal == 1:  # Buy signal
+        if macd > macd_signal:  # Bullish MACD crossover
+            macd_score = min(100, max(0, 50 + (macd_hist * 100)))
+        else:
+            macd_score = max(0, 50 - abs(macd_hist * 100))
+    else:  # Sell signal
+        if macd < macd_signal:  # Bearish MACD crossover
+            macd_score = min(100, max(0, 50 + abs(macd_hist * 100)))
+        else:
+            macd_score = max(0, 50 - (macd_hist * 100))
+
+    # Momentum Score (0-100)
+    momentum_score = 0
+    if signal == 1:  # Buy signal
+        if momentum > 0:  # Positive momentum for buy
+            if abs_momentum <= 1:
+                momentum_score = 100  # Steady upward momentum
+            elif abs_momentum <= 2:
+                momentum_score = 80
+            elif abs_momentum <= 3:
+                momentum_score = 60
+            else:
+                momentum_score = 40  # Too volatile
+        else:  # Negative momentum for buy
+            momentum_score = max(0, 50 - abs_momentum * 10)
+
+    else:  # Sell signal
+        if momentum < 0:  # Negative momentum for sell
+            if abs_momentum <= 1:
+                momentum_score = 100  # Steady downward momentum
+            elif abs_momentum <= 2:
+                momentum_score = 80
+            elif abs_momentum <= 3:
+                momentum_score = 60
+            else:
+                momentum_score = 40  # Too volatile
+        else:  # Positive momentum for sell
+            momentum_score = max(0, 50 - abs_momentum * 10)
+
+    # Combined score (60% MACD, 40% Momentum)
+    final_score = (macd_score * 0.6) + (momentum_score * 0.4)
+
+    return round(final_score, 1)
+
+
+def calculate_entry_price(signal: pd.Series, safety_score: float) -> float:
+    """Calculate entry price based on signal and safety score"""
+    base_price = signal['close']
+
+    # Adjust entry based on safety score
+    if signal['signal'] == 1:  # Buy signal
+        # More conservative for lower safety
+        adjustment = (100 - safety_score) / 1000
+        return base_price * (1 - adjustment)
+    else:  # Sell signal
+        # More conservative for lower safety
+        adjustment = (100 - safety_score) / 1000
+        return base_price * (1 + adjustment)
 
 
 def calculate_entry_percentage(ob_direction: int, volume_score: float, ob_height_percent: float) -> dict:
@@ -374,8 +527,8 @@ def calculate_macd_quality(data: pd.DataFrame, current_price: float) -> float:
     # Calculate price momentum
     price_change_percent = ((current_price - last_close) / last_close) * 100
 
-    # Calculate recent MACD momentum (last 5 periods)
-    macd_change = data['macd'].diff().tail(5).mean()
+    # Calculate recent MACD momentum (last 10 periods)
+    macd_change = data['macd'].diff().tail(10).mean()
 
     # Initialize quality score
     quality_score = 0
@@ -496,109 +649,131 @@ def analyze_volume_patterns(data: pd.DataFrame, lookback: int = 20) -> dict:
     recent_data = data.tail(lookback).copy()
 
     # Calculate Volume RSI
-
     volume_rsi = calculate_rsi(recent_data['volume'], rsi_length=14)
     current_volume_rsi = volume_rsi.iloc[-1]
 
-    # Calculate volume score with RSI integration
+    # Analyze last candle
+    last_candle = recent_data.iloc[-1]
+    prev_candle = recent_data.iloc[-2]
+
+    # Determine last candle type
+    is_bullish = last_candle['close'] > last_candle['open']
+    volume_increase = last_candle['volume'] > prev_candle['volume']
+
+    # Calculate candle body and wicks
+    body_size = abs(last_candle['close'] - last_candle['open'])
+    upper_wick = last_candle['high'] - \
+        max(last_candle['open'], last_candle['close'])
+    lower_wick = min(last_candle['open'],
+                     last_candle['close']) - last_candle['low']
+
+    # Classify last candle
+    if is_bullish:
+        if body_size > upper_wick and volume_increase:
+            candle_type = "STRONG_BUY"
+            candle_score = 90
+        elif body_size > upper_wick:
+            candle_type = "BUY"
+            candle_score = 70
+        elif upper_wick > body_size:
+            candle_type = "WEAK_BUY"
+            candle_score = 55
+        else:
+            candle_type = "NEUTRAL"
+            candle_score = 50
+    else:
+        if body_size > lower_wick and volume_increase:
+            candle_type = "STRONG_SELL"
+            candle_score = 10
+        elif body_size > lower_wick:
+            candle_type = "SELL"
+            candle_score = 30
+        elif lower_wick > body_size:
+            candle_type = "WEAK_SELL"
+            candle_score = 45
+        else:
+            candle_type = "NEUTRAL"
+            candle_score = 50
+
+    # Calculate recent candle patterns (last 3 candles)
+    recent_candles = recent_data.tail(3)
+    bullish_candles = recent_candles[recent_candles['close']
+                                     > recent_candles['open']]
+    bearish_candles = recent_candles[recent_candles['close']
+                                     <= recent_candles['open']]
+
+    buy_volume = bullish_candles['volume'].sum()
+    sell_volume = bearish_candles['volume'].sum()
+    total_volume = buy_volume + sell_volume
+
+    # Calculate volume metrics
     avg_volume = recent_data['volume'].mean()
-    current_volume = recent_data['volume'].iloc[-1]
+    current_volume = last_candle['volume']
     volume_ratio = current_volume / avg_volume
+
+    # Calculate buy/sell ratios
+    buy_ratio = (buy_volume / total_volume * 100) if total_volume > 0 else 0
+    sell_ratio = (sell_volume / total_volume * 100) if total_volume > 0 else 0
 
     # Volume trend calculation
     volume_trend = recent_data['volume'].pct_change().mean() * 100
-
-    # RSI-based volume conditions
-    volume_conditions = {
-        'overbought': current_volume_rsi > 70,
-        'oversold': current_volume_rsi < 30,
-        'rising': current_volume_rsi > 50 and volume_trend > 0,
-        'falling': current_volume_rsi < 50 and volume_trend < 0
-    }
-
-    # Enhanced volume score calculation (0-100)
-    volume_score = min(100, max(0, int((
-        # Volume ratio contribution (30%)
-        (volume_ratio - 0.5) * 30 +
-        # RSI contribution (40%)
-        (current_volume_rsi * 0.4) +
-        # Trend contribution (30%)
-        (volume_trend * 3) +
-        # Base score adjustment
-        20
-    ))))
-
-    # Calculate pressure (buy/sell ratio with RSI context)
-    buy_candles = recent_data[recent_data['close'] > recent_data['open']]
-    sell_candles = recent_data[recent_data['close'] <= recent_data['open']]
-
-    buy_volume = buy_candles['volume'].sum()
-    sell_volume = sell_candles['volume'].sum()
-    total_volume = buy_volume + sell_volume
-
-    # Calculate ratios
-    buy_ratio = (buy_volume / total_volume * 100) if total_volume > 0 else 0
-    sell_ratio = (sell_volume / total_volume * 100) if total_volume > 0 else 0
-    pressure_ratio = (
-        buy_volume / sell_volume) if sell_volume > 0 else float('inf')
-
-    # Determine volume dominance with RSI context
-    if current_volume_rsi > 70:
-        if buy_ratio > 60:
-            dominance = "Strong Buyers Dominant"
-        elif sell_ratio > 60:
-            dominance = "Strong Sellers Dominant"
+    volume_score = 0
+    if volume_trend > 0:
+        volume_score += 50  # Base score for positive trend
+    if buy_ratio > 60:
+        volume_score += 30  # Additional score for strong buying
+    elif sell_ratio > 60:
+        volume_score -= 30  # Penal
+    # Determine volume pressure
+    if candle_type in ["STRONG_BUY", "BUY"]:
+        if volume_ratio > 1.5:
+            pressure = "Strong Buying Pressure"
+            pressure_score = 90
         else:
-            dominance = "High Volume Neutral"
-    elif current_volume_rsi < 30:
-        if buy_ratio > 60:
-            dominance = "Weak Buyers Present"
-        elif sell_ratio > 60:
-            dominance = "Weak Sellers Present"
+            pressure = "Moderate Buying Pressure"
+            pressure_score = 70
+    elif candle_type in ["STRONG_SELL", "SELL"]:
+        if volume_ratio > 1.5:
+            pressure = "Strong Selling Pressure"
+            pressure_score = 10
         else:
-            dominance = "Low Volume Neutral"
+            pressure = "Moderate Selling Pressure"
+            pressure_score = 30
     else:
         if buy_ratio > 60:
-            dominance = "Buyers Dominant"
+            pressure = "Weak Buying Pressure"
+            pressure_score = 60
         elif sell_ratio > 60:
-            dominance = "Sellers Dominant"
+            pressure = "Weak Selling Pressure"
+            pressure_score = 40
         else:
-            dominance = "Neutral"
-
-    # Determine pressure with RSI context
-    if current_volume_rsi > 70:
-        if pressure_ratio > 1.2:
-            pressure = "Strong Buying Climax"
-        elif pressure_ratio < 0.8:
-            pressure = "Strong Selling Climax"
-        else:
-            pressure = "High Volume Churn"
-    elif current_volume_rsi < 30:
-        if pressure_ratio > 1.2:
-            pressure = "Weak Buying"
-        elif pressure_ratio < 0.8:
-            pressure = "Weak Selling"
-        else:
-            pressure = "Low Volume Consolidation"
-    else:
-        if pressure_ratio > 1.2:
-            pressure = "Moderate Buying"
-        elif pressure_ratio < 0.8:
-            pressure = "Moderate Selling"
-        else:
-            pressure = "Neutral"
+            pressure = "Neutral Pressure"
+            pressure_score = 50
 
     return {
-        'volume_score': volume_score,
         'volume_rsi': current_volume_rsi,
         'buy_ratio': buy_ratio,
+        'volume_score': volume_score,
+        'pressure_ratio': pressure_score / 100,
         'sell_ratio': sell_ratio,
-        'pressure_ratio': pressure_ratio,
         'volume_trend': volume_trend,
-        'volume_conditions': volume_conditions,
         'analysis': {
             'pressure': pressure,
-            'dominance': dominance
+            'score': pressure_score,
+        },
+        'last_candle': {
+            'type': candle_type,
+            'score': candle_score,
+            'volume': current_volume,
+            'volume_ratio': volume_ratio,
+            'body_size': body_size,
+            'upper_wick': upper_wick,
+            'lower_wick': lower_wick
+        },
+        'recent_pattern': {
+            'bullish_count': len(bullish_candles),
+            'bearish_count': len(bearish_candles),
+            'dominant_side': 'BULLISH' if len(bullish_candles) > len(bearish_candles) else 'BEARISH'
         }
     }
 
@@ -651,7 +826,8 @@ def calculate_dynamic_risk_percentage(
     volume_score: float,
     ob_height_percent: float,
     current_price: float,
-    ob_direction: int
+    ob_direction: int,
+    vol_analysis: dict,
 ) -> dict:
     """
     Calculate risk percentage based on market conditions and volume patterns
@@ -669,7 +845,8 @@ def calculate_dynamic_risk_percentage(
     - Dictionary containing risk analysis and trade recommendations
     """
     # Get volume analysis
-    volume_analysis = analyze_volume_patterns(data, lookback=50)
+    volume_analysis = vol_analysis if vol_analysis else analyze_volume_patterns(
+        data, lookback=50)
     volume_score = volume_analysis['volume_score']
 
     # Calculate basic metrics
@@ -1163,6 +1340,8 @@ def analyze_trading_setup(data, swing_hl):
     # Add velocity analysis
     velocity = calculate_velocity(data, 50)
 
+    volume_analysis = analyze_volume_patterns(data, lookback=50)
+
     # Analyze each order block
     for i in range(len(ob_results)):
         if pd.notna(ob_results["OB"][i]):
@@ -1217,9 +1396,9 @@ def analyze_trading_setup(data, swing_hl):
                 volume_score=volume_score,
                 ob_height_percent=ob_height_percent,
                 current_price=current_price,
-                ob_direction=ob_direction
+                ob_direction=ob_direction,
+                vol_analysis=volume_analysis
             )
-            volume_analysis = risk_assessment['volume_analysis']
 
             # Determine setup type based on OB direction, trend, and volume pressure
             if ob_direction == 1:  # Bullish OB
@@ -1302,7 +1481,6 @@ def analyze_trading_setup(data, swing_hl):
                 'suggested_leverage': suggested_leverage,
                 'setup_quality': risk_assessment['setup_quality'],
                 'entry_quality': entry_quality,
-                'volume_analysis': risk_assessment['volume_analysis'],
                 'trade_recommendation': risk_assessment['trade_recommendation'],
                 'warning_messages': risk_assessment['warning_messages'],
                 'risk_factors': risk_assessment['risk_factors'],
@@ -1388,6 +1566,8 @@ def analyze_trading_setup(data, swing_hl):
         "trade_setups": trade_setups,
         "current_price": current_price,
         "velocity": velocity,
+        "volume_analysis": volume_analysis,
+        "current_trend": current_trend,
         "current_volume": data['volume'].iloc[-1],
         "current_volume_ratio": data['volume'].iloc[-1] / data['volume'].tail(20).mean(),
         'last_candle_signal': "SELL" if data['close'].iloc[-1] <= data['open'].iloc[-1] else "BUY"

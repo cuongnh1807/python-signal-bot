@@ -66,6 +66,9 @@ class TelegramBot:
         try:
             setups = trade_setups['trade_setups']
             velocity = trade_setups['velocity']
+            vol_analysis = trade_setups.get('volume_analysis', {})
+            current_price = trade_setups.get('current_price', 0)
+            current_trend = trade_setups.get('current_trend', 'N/A')
 
             # Filter out setups that are too far or have distance warning
             filtered_setups = [
@@ -89,47 +92,54 @@ class TelegramBot:
 
             bearish_setups = bearish_setups[:2]
 
-            if filtered_setups:
-                vol_analysis = filtered_setups[0].get('volume_analysis', {})
-                current_price = filtered_setups[0].get('current_price', 0)
-                current_trend = filtered_setups[0].get('current_trend', 'N/A')
+            # Format volume trend indicators
+            volume_trend_value = vol_analysis.get('volume_trend', 0)
+            volume_emoji = "📈" if volume_trend_value > 5 else "📉" if volume_trend_value < -5 else "➡️"
 
-                # Format volume trend indicators
-                volume_trend_value = vol_analysis.get('volume_trend', 0)
-                volume_emoji = "📈" if volume_trend_value > 5 else "📉" if volume_trend_value < -5 else "➡️"
+            pressure_ratio = vol_analysis.get('pressure_ratio', 1)
+            pressure_emoji = "🟢" if pressure_ratio > 1.2 else "🔴" if pressure_ratio < 0.83 else "⚪️"
 
-                pressure_ratio = vol_analysis.get('pressure_ratio', 1)
-                pressure_emoji = "🟢" if pressure_ratio > 1.2 else "🔴" if pressure_ratio < 0.83 else "⚪️"
-                message = (
-                    f"💹 <b>Market Status</b>\n"
-                    f"• Symbol: {symbol}\n"
-                    f"• Timeframe: {timeframe}\n"
-                    f"• Current Price: {current_price:.2f}\n"
-                    f"• Market Trend: {self.get_trend_emoji(current_trend)} {current_trend}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"📊 <b>Volume Analysis</b>\n"
-                    f"• Volume Trend: {volume_emoji} {volume_trend_value:.1f}%\n"
-                    f"• Buy/Sell Ratio: {vol_analysis.get('buy_ratio', 0):.1f}% / {vol_analysis.get('sell_ratio', 0):.1f}%\n"
-                    f"• Pressure: {pressure_emoji} {vol_analysis.get('analysis', {}).get('pressure', 'N/A')}\n"
-                    f"• Current Volume: {trade_setups.get('current_volume', 0):.1f}\n"
-                    f"• Current Volume Ratio: {trade_setups.get('current_volume_ratio', 0):.1f}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"⚡️ <b>Momentum Analysis</b>\n"
-                    f"• Price: {velocity.get('price', {}).get('current', 0):.2f}% "
-                    f"({'↗️' if velocity.get('price', {}).get('condition') == 'INCREASING' else '↘️'})\n"
-                    f"• Volume: {velocity.get('volume', {}).get('current', 0):.2f}% "
-                    f"({'📈' if velocity.get('volume', {}).get('condition') == 'INCREASING' else '📉'})\n"
-                    f"• MA Status: {'Above SMA50 ↗️' if velocity.get('ma_analysis', {}).get('above_sma50') else 'Below SMA50 ↘️'}\n"
-                    f"• EMA Signal: {'✅ Bullish Cross' if velocity.get('ma_analysis', {}).get('ema_crossover') else '❌ No Cross'}\n"
-                    f"• RSI ({velocity.get('rsi_analysis', {}).get('current', 0):.1f}): "
-                    f"{'🔴 Overbought' if velocity.get('rsi_analysis', {}).get('overbought') else '🟢 Oversold' if velocity.get('rsi_analysis', {}).get('oversold') else '⚪️ Neutral'}\n"
-                    "\n🔔 <b>Signals</b>\n"
-                    f"{chr(10).join(f'• {signal}' for signal in velocity.get('signals', []) or ['No signals detected'])}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                )
-                message += header_message
-            else:
-                message = (
+            # Get volume analysis details
+            last_candle = vol_analysis['last_candle']
+            pressure = vol_analysis['analysis']
+
+            # Get emojis based on scores
+            candle_emoji = "🟢" if last_candle['score'] >= 70 else "🔴" if last_candle['score'] <= 30 else "🟡"
+            pressure_emoji = "🟢" if pressure['score'] >= 70 else "🔴" if pressure['score'] <= 30 else "🟡"
+
+            message = (
+                f"💹 <b>Market Status</b>\n"
+                f"• Symbol: {symbol}\n"
+                f"• Timeframe: {timeframe}\n"
+                f"• Current Price: {current_price:.2f}\n"
+                f"• Market Trend: {self.get_trend_emoji(current_trend)} {current_trend}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📊 <b>Volume Analysis</b>\n"
+                f"• Volume Trend: {volume_emoji} {volume_trend_value:.1f}%\n"
+                f"• Buy/Sell Ratio: {vol_analysis.get('buy_ratio', 0):.1f}% / {vol_analysis.get('sell_ratio', 0):.1f}%\n"
+                f"• Pressure: {pressure_emoji} {pressure['pressure']}\n"
+                f"• Current Volume: {trade_setups.get('current_volume', 0):.1f}\n"
+                f"• Current Volume Ratio: {trade_setups.get('current_volume_ratio', 0):.1f}\n"
+                f"• Last Candle: {candle_emoji} {last_candle['type']} ({last_candle['score']}%)\n"
+                f"• Pattern: {vol_analysis['recent_pattern']['dominant_side']} "
+                f"({vol_analysis['recent_pattern']['bullish_count']}/{vol_analysis['recent_pattern']['bearish_count']})\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚡️ <b>Momentum Analysis</b>\n"
+                f"• Price: {velocity.get('price', {}).get('current', 0):.2f}% "
+                f"({'↗️' if velocity.get('price', {}).get('condition') == 'INCREASING' else '↘️'})\n"
+                f"• Volume: {velocity.get('volume', {}).get('current', 0):.2f}% "
+                f"({'📈' if velocity.get('volume', {}).get('condition') == 'INCREASING' else '📉'})\n"
+                f"• MA Status: {'Above SMA50 ↗️' if velocity.get('ma_analysis', {}).get('above_sma50') else 'Below SMA50 ↘️'}\n"
+                f"• EMA Signal: {'✅ Bullish Cross' if velocity.get('ma_analysis', {}).get('ema_crossover') else '❌ No Cross'}\n"
+                f"• RSI ({velocity.get('rsi_analysis', {}).get('current', 0):.1f}): "
+                f"{'🔴 Overbought' if velocity.get('rsi_analysis', {}).get('overbought') else '🟢 Oversold' if velocity.get('rsi_analysis', {}).get('oversold') else '⚪️ Neutral'}\n"
+                "\n🔔 <b>Signals</b>\n"
+                f"{chr(10).join(f'• {signal}' for signal in velocity.get('signals', []) or ['No signals detected'])}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+            message += header_message
+            if len(filtered_setups) == 0:
+                message += (
                     f"🔍 <b>Trading Analysis: {symbol} {timeframe}</b>\n\n"
                     "No valid trading setups within optimal range detected."
                 )
@@ -257,7 +267,7 @@ class TelegramBot:
                 if ob_data["OB"][i] != 0:  # If OB exists
                     ob_type = "Bullish" if ob_data["OB"][i] == 1 else "Bearish"
                     active_obs.append(
-                        f"• {ob_type} OB: {ob_data['Bottom'][i]:.2f} - {ob_data['Top'][i]:.2f}"
+                        f"�� {ob_type} OB: {ob_data['Bottom'][i]:.2f} - {ob_data['Top'][i]:.2f}"
                     )
 
             # Format liquidity levels

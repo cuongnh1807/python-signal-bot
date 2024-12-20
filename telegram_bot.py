@@ -121,7 +121,7 @@ class TelegramBot:
                 f"• Current Volume: {trade_setups.get('current_volume', 0):.1f}\n"
                 f"• Current Volume Ratio: {trade_setups.get('current_volume_ratio', 0):.1f}\n"
                 f"• Last Candle: {candle_emoji} {last_candle['type']} ({last_candle['score']}%)\n"
-                f"• Pattern: {vol_analysis['recent_pattern']['dominant_side']} "
+                f"• Pattern: {vol_analysis['recent_pattern']['dominant_side']}"
                 f"({vol_analysis['recent_pattern']['bullish_count']}/{vol_analysis['recent_pattern']['bearish_count']})\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"⚡️ <b>Momentum Analysis</b>\n"

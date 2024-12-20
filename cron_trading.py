@@ -147,20 +147,20 @@ async def main():
 
         bot = TradingBot()
 
-        await bot.scan_markets()
+        # await bot.scan_markets()
 
         # await bot.scan_markets()
 
         # Create tasks for different timeframe scans
-        # scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
+        scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
 
-        # # Schedule the scan_markets to run at minutes 1, 16, 31, 46
-        # # scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
-        # #                   second='30')
-        # scheduler.add_job(bot.scan_markets, 'cron', minute='14,29,44,59',  # Run every 10 minutes
+        # Schedule the scan_markets to run at minutes 1, 16, 31, 46
+        # scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
         #                   second='30')
+        scheduler.add_job(bot.scan_markets, 'cron', minute='14,29,44,59',  # Run every 10 minutes
+                          second='30')
 
-        # scheduler.start()
+        scheduler.start()
 
         # Keep the main program running
         while True:

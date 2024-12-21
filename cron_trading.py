@@ -146,8 +146,6 @@ async def main():
 
         # await bot.scan_markets()
 
-        await bot.scan_markets()
-
         # Create tasks for different timeframe scans
         scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
 

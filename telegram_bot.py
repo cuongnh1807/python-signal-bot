@@ -197,7 +197,7 @@ class TelegramBot:
                     f"  ▪️ TP2: {setup.get('take_profit_levels', {}).get('tp2', 0):.2f}\n"
                     f"  ▪️ TP3: {setup.get('take_profit_levels', {}).get('tp3', 0):.2f}\n\n"
                     f"⚖️ <b>Risk Management</b>\n"
-                    f"• Risk: {setup['risk_percentage']:.2f}% ({setup['risk_rating']})\n"
+                    f"• Opportunity: {(setup['risk_percentage'] * 100):.2f}% ({setup['risk_rating']})\n"
                     f"• Suggested Leverage: {setup['suggested_leverage']}x\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                 )

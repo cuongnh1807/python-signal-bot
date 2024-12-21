@@ -1440,14 +1440,14 @@ def analyze_trading_setup(data, swing_hl):
 
             # Adjust leverage based on risk
             if risk_percentage <= 0.5:
-                max_leverage = 50  # More conservative setups allow higher leverage
+                max_leverage = 30  # More conservative setups allow higher leverage
             elif risk_percentage <= 0.75:
-                max_leverage = 30  # Moderate risk setups
+                max_leverage = 50  # Moderate risk setups
             else:
-                max_leverage = 10  # Higher risk setups get limited leverage
+                max_leverage = 70  # Higher risk setups get limited leverage
 
             if risk_percentage <= 0:
-                suggested_leverage = 75
+                suggested_leverage = 10
             else:
                 suggested_leverage = min(
                     max_leverage, int(1 / risk_percentage * 50))

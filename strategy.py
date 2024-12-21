@@ -66,7 +66,9 @@ def calculate_macd(data: pd.DataFrame, short_window: int = 12, long_window: int 
     exp2 = data['close'].ewm(span=long_window, adjust=False).mean()
     macd = exp1 - exp2
     signal = macd.ewm(span=signal_window, adjust=False).mean()
-    return pd.DataFrame({'macd': macd, 'signal': signal})
+    histogram = macd - signal
+
+    return pd.DataFrame({'macd': macd, 'signal': signal, 'histogram': histogram})
 
 
 def generate_signals(data: pd.DataFrame) -> pd.DataFrame:
@@ -1193,18 +1195,23 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
     """
     # Calculate MAs
     data['SMA50'] = data['close'].rolling(window=50).mean()
-    data['EMA5'] = data['close'].ewm(span=5, adjust=False).mean()
-    data['EMA12'] = data['close'].ewm(span=12, adjust=False).mean()
+    data['EMA9'] = data['close'].ewm(span=5, adjust=False).mean()
+    data['EMA21'] = data['close'].ewm(span=12, adjust=False).mean()
 
     # Calculate RSI
     rsi = calculate_rsi(data)
-    current_rsi = rsi.iloc[-1] - 5
+    current_rsi = rsi.iloc[-1] - 2
+
+    # macd = calculate_macd(data)
+    # macd_hist = macd['histogram'].iloc[-1]
+    # prev_macd_hist = macd['histogram'].iloc[-2]
+    # macd_increasing = macd_hist > prev_macd_hist
 
     # Get current values
     current_price = data['close'].iloc[-1]
     current_sma50 = data['SMA50'].iloc[-1]
-    current_ema5 = data['EMA5'].iloc[-1]
-    current_ema12 = data['EMA12'].iloc[-1]
+    current_ema9 = data['EMA9'].iloc[-1]
+    current_ema21 = data['EMA21'].iloc[-1]
 
     # Price velocity calculation
     price_changes = data['close'].pct_change(periods=1).tail(lookback)
@@ -1218,8 +1225,8 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
 
     # MA Crossover detection
     ema_crossover = (
-        data['EMA5'].iloc[-2] <= data['EMA12'].iloc[-2] and
-        current_ema5 > current_ema12
+        data['EMA9'].iloc[-2] <= data['EMA21'].iloc[-2] and
+        current_ema9 > current_ema21
     )
 
     # Market conditions

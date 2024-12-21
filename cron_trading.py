@@ -155,7 +155,7 @@ async def main():
         # scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
         #                   second='30')
         scheduler.add_job(bot.scan_markets, 'cron', minute='14,29,44,59',  # Run every 10 minutes
-                          second='55')
+                          second='30')
 
         # scheduler.start()
 

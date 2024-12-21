@@ -101,10 +101,6 @@ class TradingBot:
                 signal_lines.append(signal_line)
 
             message = (
-                f"📊 <b>Signal Analysis</b>\n"
-                f"• Current Price: {result['current_price']:.2f}\n"
-                f"• Market Trend: {result['trend']}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 <b>Trading Signals</b>\n"
                 f"{chr(10).join(signal_lines)}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"

@@ -117,7 +117,7 @@ def generate_signals(data: pd.DataFrame) -> pd.DataFrame:
     return data
 
 
-def find_closest_signal(data: pd.DataFrame, current_price: float) -> dict:
+def find_closest_signal(data: pd.DataFrame, current_price: float, limit: int = 5, loopback: int = 10) -> dict:
     """Find the 5 closest signals and determine safety rating based on RSI and momentum"""
     # Filter signals
     signals = data[data['signal'] != 0].copy()
@@ -132,10 +132,10 @@ def find_closest_signal(data: pd.DataFrame, current_price: float) -> dict:
     signals.loc[:, 'price_distance'] = (
         signals['close'] - current_price).abs() / current_price * 100
     signals['momentum'] = data['close'].pct_change(
-        periods=3) * 100  # 3-period momentum
+        periods=loopback) * 100  # 3-period momentum
 
     # Get 5 closest signals
-    closest_signals = signals.nsmallest(3, 'price_distance')
+    closest_signals = signals.nsmallest(limit, 'price_distance')
 
     signal_details = []
     for _, signal in closest_signals.iterrows():

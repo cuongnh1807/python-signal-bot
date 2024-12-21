@@ -86,7 +86,8 @@ class TradingBot:
 
             # Analyze trading setups
             trade_setups = analyze_trading_setup(df, swing_hl)
-            result = find_closest_signal(df, trade_setups['current_price'])
+            result = find_closest_signal(
+                df, trade_setups['current_price'], limit=5, loopback=15)
 
             # Create signal lines
             signal_lines = []
@@ -145,7 +146,7 @@ async def main():
 
         # await bot.scan_markets()
 
-        # await bot.scan_markets()
+        await bot.scan_markets()
 
         # Create tasks for different timeframe scans
         scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
@@ -153,10 +154,10 @@ async def main():
         # Schedule the scan_markets to run at minutes 1, 16, 31, 46
         # scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
         #                   second='30')
-        scheduler.add_job(bot.scan_markets, 'cron', minute='2,17,32,47',  # Run every 10 minutes
-                          second='0')
+        scheduler.add_job(bot.scan_markets, 'cron', minute='14,29,44,59',  # Run every 10 minutes
+                          second='55')
 
-        scheduler.start()
+        # scheduler.start()
 
         # Keep the main program running
         while True:

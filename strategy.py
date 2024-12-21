@@ -696,7 +696,7 @@ def analyze_volume_patterns(data: pd.DataFrame, lookback: int = 20) -> dict:
             candle_score = 50
 
     # Calculate recent candle patterns (last 3 candles)
-    recent_candles = recent_data.tail(3)
+    recent_candles = recent_data.tail(5)
     bullish_candles = recent_candles[recent_candles['close']
                                      > recent_candles['open']]
     bearish_candles = recent_candles[recent_candles['close']

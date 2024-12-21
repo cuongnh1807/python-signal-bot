@@ -1267,8 +1267,8 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
             'ema_crossover': conditions['ema_crossover'],
             'current_price': current_price,
             'sma50': current_sma50,
-            'ema5': current_ema5,
-            'ema12': current_ema12
+            'ema9': current_ema9,
+            'ema21': current_ema21
         },
         'rsi_analysis': {
             'current': current_rsi,

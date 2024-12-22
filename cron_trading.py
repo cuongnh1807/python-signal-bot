@@ -1,6 +1,6 @@
 from binance_data_fetcher import BinanceDataFetcher
 from telegram_bot import TelegramBot
-from strategy import analyze_trading_setup, find_closest_signal
+from strategy import analyze_trading_setup, find_closest_signal, generate_signals
 from smartmoneyconcepts.smc import smc
 import time
 from datetime import datetime, timedelta
@@ -68,7 +68,7 @@ class TradingBot:
             logger.info(f"Analyzing {symbol} on {interval} timeframe")
 
             # Calculate start time (5 days of data)
-            start_time = datetime.now() - timedelta(days=10)
+            start_time = datetime.now() - timedelta(days=7)
 
             # Fetch market data
             df = self.data_fetcher.get_historical_klines(
@@ -78,6 +78,7 @@ class TradingBot:
             )
             # remove last candle
             df = df.iloc[:-1]
+            df = generate_signals(df)
 
             if df.empty:
                 logger.warning(f"No data received for {symbol} {interval}")

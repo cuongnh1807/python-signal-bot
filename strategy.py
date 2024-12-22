@@ -518,7 +518,7 @@ def calculate_macd_quality(data: pd.DataFrame, current_price: float) -> float:
     Returns quality score (0-15)
     """
     # Get the latest values
-    data = generate_signals(data)
+    # data = generate_signals(data)
     current_macd = data['macd'].iloc[-1]
     current_signal = data['macd_signal'].iloc[-1]
     last_close = data['close'].iloc[-1]

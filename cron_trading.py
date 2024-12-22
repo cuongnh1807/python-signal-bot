@@ -140,7 +140,6 @@ class TradingBot:
 async def main():
     """Main function to run the trading bot"""
     try:
-        await start_web_server()
 
         bot = TradingBot()
 
@@ -156,6 +155,7 @@ async def main():
                           second='30')
 
         scheduler.start()
+        await start_web_server()
 
         # Keep the main program running
         while True:

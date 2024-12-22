@@ -76,6 +76,8 @@ class TradingBot:
                 interval=interval,
                 start_time=start_time
             )
+            # remove last candle
+            df = df.iloc[:-1]
 
             if df.empty:
                 logger.warning(f"No data received for {symbol} {interval}")
@@ -151,8 +153,7 @@ async def main():
         # Schedule the scan_markets to run at minutes 1, 16, 31, 46
         # scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
         #                   second='30')
-        scheduler.add_job(bot.scan_markets, 'cron', minute='14,29,44,59',  # Run every 10 minutes
-                          second='30')
+        scheduler.add_job(bot.scan_markets, 'cron', minute='1,16,31,46')
 
         scheduler.start()
         await start_web_server()

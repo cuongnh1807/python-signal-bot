@@ -76,14 +76,11 @@ class TradingBot:
                 interval=interval,
                 start_time=start_time
             )
-            # remove last candle
-            df = df.iloc[:-1]
-            df = generate_signals(df)
 
             if df.empty:
                 logger.warning(f"No data received for {symbol} {interval}")
                 return
-
+            df = df.iloc[:-1].copy()
             # Calculate swing highs/lows
             swing_hl = smc.swing_highs_lows(df, swing_length=5)
 

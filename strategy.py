@@ -2,6 +2,8 @@ from smartmoneyconcepts.smc import smc
 from datetime import datetime, timedelta
 import pandas as pd
 from typing import Union
+from helpers.price import calculate_price_momentum
+
 
 setup_classification = {
     'LONG_BOS': 'Break of Structure Long - Strong counter-trend reversal with high volume climax',
@@ -122,6 +124,7 @@ def generate_signals(data: pd.DataFrame) -> pd.DataFrame:
 def find_closest_signal(data: pd.DataFrame, current_price: float, limit: int = 5, loopback: int = 10) -> dict:
     """Find the 5 closest signals and determine safety rating based on RSI and momentum"""
     # Filter signals
+    # m = generate_signals(data)
     signals = data[data['signal'] != 0].copy()
 
     if signals.empty:
@@ -518,7 +521,7 @@ def calculate_macd_quality(data: pd.DataFrame, current_price: float) -> float:
     Returns quality score (0-15)
     """
     # Get the latest values
-    # data = generate_signals(data)
+    data = generate_signals(data)
     current_macd = data['macd'].iloc[-1]
     current_signal = data['macd_signal'].iloc[-1]
     last_close = data['close'].iloc[-1]
@@ -573,7 +576,8 @@ def calculate_setup_quality(
     price_distance: float,
     ob_height_percent: float,
     stop_distance: float,
-    lookback: int = 10
+    lookback: int = 10,
+    macd_quality: float = 0,
 ) -> float:
     """
     Calculate overall setup quality score with enhanced analysis
@@ -587,9 +591,7 @@ def calculate_setup_quality(
     rsi = calculate_rsi(data)
     current_rsi = rsi.iloc[-1]
 
-    # Calculate Pivot Points
-    current_price = data['close'].iloc[-1]
-
+    # Calculate Pivot Point
     # Enhanced volume quality (0-30 points)
     volume_ratio = current_volume / avg_recent_volume
     volume_trend = recent_volumes.pct_change().mean() * 100
@@ -605,7 +607,6 @@ def calculate_setup_quality(
     rsi_quality = calculate_rsi_quality(current_rsi)
 
     # Get MACD point quality (0-15 points)
-    macd_quality = calculate_macd_quality(data, current_price)
 
     # Price distance quality (0-15 points)
     distance_quality = max(0, (1 - price_distance * 10) * 10)
@@ -821,191 +822,105 @@ def get_trade_recommendation(setup_quality: float, volume_analysis: dict,
     return "DO NOT TRADE - Conditions not favorable"
 
 
-def calculate_dynamic_risk_percentage(
-    data: pd.DataFrame,
-    entry_price: float,
-    stop_loss: float,
-    volume_score: float,
-    ob_height_percent: float,
-    current_price: float,
-    ob_direction: int,
-    vol_analysis: dict,
-) -> dict:
+def calculate_dynamic_risk_percentage(data: pd.DataFrame,
+                                      entry_price: float,
+                                      stop_loss: float,
+                                      volume_score: float,
+                                      ob_height_percent: float,
+                                      current_price: float,
+                                      ob_direction: int,
+                                      vol_analysis: dict,
+                                      macd_quality: dict) -> dict:
     """
-    Calculate risk percentage based on market conditions and volume patterns
-
-    Parameters:
-    - data: DataFrame containing price and volume data
-    - entry_price: Planned entry price
-    - stop_loss: Stop loss level
-    - volume_score: Volume analysis score (0-100)
-    - ob_height_percent: Order block height as percentage
-    - current_price: Current market price
-    - ob_direction: Order block direction (1 for bullish, -1 for bearish)
-
-    Returns:
-    - Dictionary containing risk analysis and trade recommendations
+    Calculate dynamic risk percentage with momentum analysis
     """
-    # Get volume analysis
-    volume_analysis = vol_analysis if vol_analysis else analyze_volume_patterns(
-        data, lookback=50)
-    volume_score = volume_analysis['volume_score']
 
-    # Calculate basic metrics
-    price_distance = abs(current_price - entry_price) / current_price
-    stop_distance = abs(entry_price - stop_loss) / entry_price
+    # Calculate momentum indicators
+    momentum_data = calculate_price_momentum(data, lookback=20)
 
-    # Calculate setup quality with volume analysis
-    setup_quality = calculate_setup_quality(
-        data=data,
-        volume_score=volume_score,
-        price_distance=price_distance,
-        ob_height_percent=ob_height_percent,
-        stop_distance=stop_distance
-    )
-
-    # Determine if volume aligns with trade direction
-    volume_alignment = (
-        # Bullish with buying pressure
-        (ob_direction == 1 and volume_analysis['pressure_ratio'] > 1.2) or
-        # Bearish with selling pressure
-        (ob_direction == -1 and volume_analysis['pressure_ratio'] < 0.83)
-    )
-
-    # Update risk factors with detailed volume analysis
+    # Initialize risk factors dictionary
     risk_factors = {
-        'volume': {
-            'score': volume_score,
-            'weight': 0.3,
-            'contribution': (volume_score / 100) * 0.3
-        },
-        'volume_trend': {
-            'score': max(0, min(100, 50 + volume_analysis['volume_trend'] * 5)),
-            'weight': 0.2,
-            'contribution': max(0, min(0.2, (50 + volume_analysis['volume_trend'] * 5) / 100 * 0.2))
-        },
-        'pressure_alignment': {
-            'score': 100 if volume_alignment else 0,
-            'weight': 0.2,
-            'contribution': 0.2 if volume_alignment else 0
-        },
-        'price_distance': {
-            'score': max(0, (1 - price_distance * 10) * 100),
-            'weight': 0.2,
-            'contribution': max(0, 0.2 * (1 - price_distance * 10))
-        },
-        'ob_height': {
-            'score': max(0, (1 - ob_height_percent / 5) * 100),
-            'weight': 0.15,
-            'contribution': max(0, 0.15 * (1 - ob_height_percent / 5))
-        },
-        'trend_alignment': {
-            'score': 100 if (
-                (ob_direction == 1 and current_price > entry_price) or
-                (ob_direction == -1 and current_price < entry_price)
-            ) else 0,
-            'weight': 0.15,
-            'contribution': 0.15 if (
-                (ob_direction == 1 and current_price > entry_price) or
-                (ob_direction == -1 and current_price < entry_price)
-            ) else 0
-        }
+        'momentum': {'score': 0, 'weight': 0.3, 'contribution': 0},
+        'volume': {'score': 0, 'weight': 0.2, 'contribution': 0},
+        'ob_quality': {'score': 0, 'weight': 0.3, 'contribution': 0},
+        'price_action': {'score': 0, 'weight': 0.2, 'contribution': 0}
     }
 
-    # Include volume analysis warnings
+    warning_messages = []
 
-    # Calculate total risk score from all factors
-    total_risk_score = sum(factor['contribution']
-                           for factor in risk_factors.values())
+    # 1. Evaluate Momentum
+    short_term_change = momentum_data['momentum']['short_term']['pct_change']
+    momentum_direction = momentum_data['momentum']['short_term']['direction']
+    candle_momentum = momentum_data['candle_momentum']['score']
 
-    # Update trade recommendation based on volume patterns
-    trade_recommendation = get_trade_recommendation(
-        setup_quality=setup_quality,
-        volume_analysis=volume_analysis,
-        price_distance=price_distance,
-        total_risk_score=total_risk_score
-    )
+    # Calculate momentum score (0-100)
+    momentum_score = 50  # Base score
+    momentum_score += short_term_change * 2  # Adjust based on price change
+    momentum_score += candle_momentum * 0.5  # Add candle momentum influence
+    momentum_score = max(0, min(100, momentum_score))  # Cap between 0-100
 
-    # Risk Assessment
-    risk_assessment = {
-        'setup_quality': setup_quality,
-        'risk_percentage': 0,
-        'recommended_leverage': 0,
-        'trade_recommendation': '',
-        'warning_messages': [],
-        'entry_quality': '',
-        'risk_factors': {},
-        'volume_analysis': volume_analysis,
-        'trade_recommendation': trade_recommendation,
-    }
+    risk_factors['momentum']['score'] = momentum_score
 
-    # Determine entry quality based on setup quality and volume patterns
-    if setup_quality >= 80 and volume_analysis['volume_trend'] > 0:
-        risk_assessment['entry_quality'] = 'Excellent'
-        base_risk = 1.0
-    elif setup_quality >= 65 and volume_analysis['volume_trend'] > -5:
-        risk_assessment['entry_quality'] = 'Good'
-        base_risk = 0.75
-    elif setup_quality >= 50 and volume_analysis['volume_trend'] > -10:
-        risk_assessment['entry_quality'] = 'Moderate'
-        base_risk = 0.5
+    if ob_direction == 1:  # Bullish OB
+        if momentum_direction == -1 and abs(short_term_change) > 1:
+            warning_messages.append(
+                "⚠️ Strong bearish momentum against bullish setup")
+        elif momentum_direction == -1:
+            warning_messages.append("⚡ Moderate bearish pressure present")
+    else:  # Bearish OB
+        if momentum_direction == 1 and abs(short_term_change) > 1:
+            warning_messages.append(
+                "⚠️ Strong bullish momentum against bearish setup")
+        elif momentum_direction == 1:
+            warning_messages.append("⚡ Moderate bullish pressure present")
+
+    # 2. Evaluate Volume
+    risk_factors['volume']['score'] = volume_score
+    if volume_score < 40:
+        warning_messages.append("📊 Low volume confidence")
+
+    # 3. Evaluate Order Block Quality
+    ob_quality = 100 - min(100, ob_height_percent * 2)
+    risk_factors['ob_quality']['score'] = ob_quality
+
+    if ob_quality < 50:
+        warning_messages.append(
+            "📐 Large order block height - reduced precision")
+
+    # 4. Evaluate Price Action
+    trend_strength = momentum_data['trend_strength']['score']
+    risk_factors['price_action']['score'] = (
+        candle_momentum + trend_strength) / 2
+
+    # Calculate weighted setup quality
+    setup_quality = 0
+    for factor, values in risk_factors.items():
+        contribution = values['score'] * values['weight']
+        values['contribution'] = contribution
+        setup_quality += contribution
+
+    # Determine trade recommendation
+    if setup_quality >= 80:
+        trade_recommendation = "Strong setup - Consider full position size"
+    elif setup_quality >= 65:
+        trade_recommendation = "Good setup - Consider moderate position size"
+    elif setup_quality >= 50:
+        trade_recommendation = "Moderate setup - Consider reduced position size"
     else:
-        risk_assessment['entry_quality'] = 'Poor'
-        base_risk = 0
-        risk_assessment['trade_recommendation'] = 'DO NOT TRADE - Setup quality too low'
+        trade_recommendation = "Weak setup - Consider avoiding or minimal position"
 
-    # Add warning messages based on conditions
-    if price_distance > 0.03:  # More than 3% away
-        risk_assessment['warning_messages'].append(
-            "⚠️ Entry far from current price - Higher risk")
+    # Calculate final risk percentage based on setup quality
+    base_risk = 1.0
+    risk_multiplier = setup_quality / 100
+    risk_percentage = base_risk * risk_multiplier
 
-    if volume_analysis['volume_trend'] < -5:
-        risk_assessment['warning_messages'].append(
-            "⚠️ Declining volume trend - Monitor volume")
-
-    if volume_analysis['volume_score'] < 40:
-        risk_assessment['warning_messages'].append(
-            "⚠️ Poor volume conditions - Consider smaller position")
-
-    if ob_height_percent > 3:
-        risk_assessment['warning_messages'].append(
-            "⚠️ Large order block - Wide stop required")
-
-    if setup_quality < 65 and volume_analysis['volume_trend'] < 0:
-        risk_assessment['warning_messages'].append(
-            "⚠️ Lower quality setup with weak volume")
-
-    # Update final risk assessment
-    risk_assessment.update({
+    return {
+        'risk_percentage': risk_percentage,
+        'setup_quality': setup_quality,
         'risk_factors': risk_factors,
-        'risk_percentage': base_risk * total_risk_score,
-        'trade_recommendation': trade_recommendation,
-        'setup_quality': setup_quality,
-        'entry_quality': risk_assessment['entry_quality'],
-        'warning_messages': risk_assessment['warning_messages'],
-        'volume_metrics': {
-            'trend': volume_analysis['volume_trend'],
-            'volatility': volume_analysis['volume_trend'],
-            'current_vs_average': data['volume'].tail(10).iloc[-1] / data['volume'].tail(10).mean()
-        }
-    })
-
-    if risk_assessment['risk_percentage'] == 0:
-        risk_assessment['recommended_leverage'] = 75
-    else:
-
-        # Adjust recommended leverage based on risk assessment
-        if setup_quality >= 80 and volume_analysis['volume_trend'] > 0:
-            risk_assessment['recommended_leverage'] = min(
-                20, int(1 / risk_assessment['risk_percentage']))
-        elif setup_quality >= 65:
-            risk_assessment['recommended_leverage'] = min(
-                15, int(1 / risk_assessment['risk_percentage']))
-        else:
-            risk_assessment['recommended_leverage'] = min(
-                10, int(1 / risk_assessment['risk_percentage']))
-
-    return risk_assessment
+        'warning_messages': warning_messages,
+        'trade_recommendation': trade_recommendation
+    }
 
 
 def calculate_order_percentage(ob_data: dict, current_price: float, volume_score: int, trend: str) -> float:
@@ -1200,7 +1115,7 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
 
     # Calculate RSI
     rsi = calculate_rsi(data)
-    current_rsi = rsi.iloc[-1] - 2
+    current_rsi = rsi.iloc[-1]
 
     # macd = calculate_macd(data)
     # macd_hist = macd['histogram'].iloc[-1]
@@ -1348,6 +1263,7 @@ def analyze_trading_setup(data, swing_hl):
     velocity = calculate_velocity(data, 50)
 
     volume_analysis = analyze_volume_patterns(data, lookback=50)
+    macd_quality = calculate_macd_quality(data, current_price)
 
     # Analyze each order block
     for i in range(len(ob_results)):
@@ -1355,9 +1271,8 @@ def analyze_trading_setup(data, swing_hl):
             # Check if order block is still active
             x1 = int(ob_results["MitigatedIndex"][i]
                      if ob_results["MitigatedIndex"][i] != 0 else len(data) - 1)
-
             # Skip if order block has been mitigated
-            if not (current_time > data.index[i] and current_time < data.index[x1] + timedelta(minutes=15)):
+            if not (current_time < data.index[x1] + timedelta(minutes=30)):
                 continue
 
             ob_volume = ob_results["OBVolume"][i]
@@ -1404,7 +1319,8 @@ def analyze_trading_setup(data, swing_hl):
                 ob_height_percent=ob_height_percent,
                 current_price=current_price,
                 ob_direction=ob_direction,
-                vol_analysis=volume_analysis
+                vol_analysis=volume_analysis,
+                macd_quality=macd_quality
             )
 
             # Determine setup type based on OB direction, trend, and volume pressure
@@ -1608,3 +1524,119 @@ def detect_trend(data: pd.DataFrame) -> str:
         return 'UPTREND'
     else:
         return 'DOWNTREND'
+
+
+def detect_rsi_divergence(data: pd.DataFrame, lookback: int = 20) -> dict:
+    """
+    Detect both bullish and bearish RSI divergences with improved algorithm
+
+    Parameters:
+    -----------
+    data: DataFrame with OHLCV and RSI data
+    lookback: Number of candles to look back
+
+    Returns:
+    --------
+    dict: Contains both bullish and bearish divergence analysis
+    """
+    # Get recent data
+    recent_data = data.tail(lookback).copy()
+
+    def find_extremes(df: pd.DataFrame, window: int = 20) -> tuple:
+        """Find local highs and lows with improved accuracy"""
+        highs = []
+        lows = []
+
+        for i in range(window, len(df) - window):
+            price_window = df['close'].iloc[i-window:i+window+1]
+            rsi_window = df['rsi'].iloc[i-window:i+window+1]
+
+            # Price extremes
+            if df['close'].iloc[i] == price_window.max():
+                highs.append({
+                    'index': i,
+                    'price': df['close'].iloc[i],
+                    'rsi': df['rsi'].iloc[i],
+                    'time': df.index[i]
+                })
+
+            if df['close'].iloc[i] == price_window.min():
+                lows.append({
+                    'index': i,
+                    'price': df['close'].iloc[i],
+                    'rsi': df['rsi'].iloc[i],
+                    'time': df.index[i]
+                })
+
+        return highs, lows
+
+    def analyze_divergence(points: list, point_type: str) -> list:
+        """Analyze sequence of points for divergence with stricter conditions"""
+        if len(points) < 2:
+            return []
+
+        divergences = []
+        for i in range(1, len(points)):
+            current = points[i]
+            previous = points[i-1]
+
+            # Calculate time difference to avoid false signals
+            time_diff = (current['time'] - previous['time']
+                         ).total_seconds() / 3600
+            if time_diff < 4:  # Minimum 4 hours between points
+                continue
+
+            if point_type == 'low':
+                # Bullish divergence
+                price_lower = current['price'] < previous['price']
+                rsi_higher = current['rsi'] > previous['rsi']
+
+                if price_lower and rsi_higher:
+                    # Calculate divergence strength
+                    price_change = abs(
+                        (current['price'] - previous['price']) / previous['price'] * 100)
+                    rsi_change = current['rsi'] - previous['rsi']
+
+                    if price_change > 0.5 and rsi_change > 2:  # Minimum thresholds
+                        divergences.append({
+                            'type': 'bullish',
+                            'strength': min(price_change * rsi_change / 10, 100),
+                            'points': {
+                                'start': previous,
+                                'end': current
+                            }
+                        })
+
+            elif point_type == 'high':
+                # Bearish divergence
+                price_higher = current['price'] > previous['price']
+                rsi_lower = current['rsi'] < previous['rsi']
+
+                if price_higher and rsi_lower:
+                    price_change = abs(
+                        (current['price'] - previous['price']) / previous['price'] * 100)
+                    rsi_change = previous['rsi'] - current['rsi']
+
+                    if price_change > 0.5 and rsi_change > 2:
+                        divergences.append({
+                            'type': 'bearish',
+                            'strength': min(price_change * rsi_change / 10, 100),
+                            'points': {
+                                'start': previous,
+                                'end': current
+                            }
+                        })
+
+        return divergences
+
+    # Find extremes
+    highs, lows = find_extremes(recent_data)
+
+    # Detect divergences
+    bullish_divs = analyze_divergence(lows, 'low')
+    bearish_divs = analyze_divergence(highs, 'high')
+
+    return {
+        'bullish': bullish_divs,
+        'bearish': bearish_divs
+    }

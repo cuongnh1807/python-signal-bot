@@ -167,24 +167,23 @@ class TelegramBot:
                 )
 
                 # Entry timing
-                limit_rec = setup.get('limit_order_recommendation', {})
-                entry_timing = (
-                    f"⏱️ <b>Entry Timing</b>\n"
-                    f"• Status: {limit_rec.get('urgency', 'LOW')} "
-                    f"({'✅ Ready' if limit_rec.get('place_order') else '⏳ Wait'})\n"
-                    f"• Note: {limit_rec.get('reason', 'N/A')}\n\n"
-                )
+                # limit_rec = setup.get('limit_order_recommendation', {})
+                # entry_timing = (
+                #     f"⏱️ <b>Entry Timing</b>\n"
+                #     f"• Status: {limit_rec.get('urgency', 'LOW')} "
+                #     f"({'✅ Ready' if limit_rec.get('place_order') else '⏳ Wait'})\n"
+                #     f"• Note: {limit_rec.get('reason', 'N/A')}\n\n"
+                # )
 
                 return (
                     f"{distance_emoji} #{index} {setup['setup_type']}\n"
-                    f"{entry_timing}"
                     f"{volume_section}"
                     f"{warning_section}"
                     f"📝 <b>Setup Description</b>\n"
                     f"• Type: {setup.get('setup_description', 'N/A')}\n"
                     f"• Strength: {setup.get('setup_strength', 'N/A')}\n"
                     f"• Distance from price: {setup['price_distance']:.2f}%\n"
-                    f"• Setup Quality: {setup['setup_quality']}/100 ({setup['entry_quality']})\n"
+                    f"• Setup Quality: {setup['setup_quality']:.2f}/100 ({setup['entry_quality']})\n"
                     f"• Order Block Range: {setup['ob_level']}\n\n"
                     f"• Trade Recommendation: {setup['trade_recommendation']}\n\n"
                     f"📐 <b>Entry Zones</b>\n"

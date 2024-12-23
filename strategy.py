@@ -53,6 +53,13 @@ def calculate_rsi(data: Union[pd.DataFrame, pd.Series], rsi_length: int = 14, ma
         avg_loss = loss.ewm(span=rsi_length, adjust=False).mean()
     else:
         raise ValueError("Invalid moving average type. Use 'SMA' or 'EMA'.")
+    for i in range(rsi_length, len(data)):
+
+        avg_gain.iloc[i] = (avg_gain.iloc[i - 1] *
+                            (rsi_length - 1) + gain.iloc[i]) / rsi_length
+
+        avg_loss.iloc[i] = (avg_loss.iloc[i - 1] *
+                            (rsi_length - 1) + loss.iloc[i]) / rsi_length
 
     # Calculate the Relative Strength (RS)
     rs = avg_gain / avg_loss
@@ -1526,117 +1533,193 @@ def detect_trend(data: pd.DataFrame) -> str:
         return 'DOWNTREND'
 
 
-def detect_rsi_divergence(data: pd.DataFrame, lookback: int = 20) -> dict:
+def find_pivots(series, left, right):
+    """Find pivot points in a series."""
+    pivots_low = []
+    pivots_high = []
+
+    for i in range(left, len(series) - right):
+        if series[i] == min(series[i - left:i + right + 1]):
+            pivots_low.append(i)
+        elif series[i] == max(series[i - left:i + right + 1]):
+            pivots_high.append(i)
+
+    return pivots_low, pivots_high
+
+
+def detect_rsi_divergence(data: pd.DataFrame, lookback: int = 20, lbL: int = 5, lbR: int = 5, rangeUpper: int = 60, rangeLower: int = 5) -> dict:
     """
-    Detect both bullish and bearish RSI divergences with improved algorithm
+    Detect both bullish and bearish RSI divergences without using ta functions.
 
     Parameters:
     -----------
-    data: DataFrame with OHLCV and RSI data
+    data: DataFrame with OHLCV data
     lookback: Number of candles to look back
+    lbL: Pivot Lookback Left
+    lbR: Pivot Lookback Right
+    rangeUpper: Max of Lookback Range
+    rangeLower: Min of Lookback Range
 
     Returns:
     --------
     dict: Contains both bullish and bearish divergence analysis
     """
-    # Get recent data
-    recent_data = data.tail(lookback).copy()
+    # Calculate RSI
+    rsi = calculate_rsi(data)
+    n = len(rsi)
 
-    def find_extremes(df: pd.DataFrame, window: int = 20) -> tuple:
-        """Find local highs and lows with improved accuracy"""
-        highs = []
-        lows = []
+    # Find pivots
+    pivots_low, pivots_high = find_pivots(rsi, lbL, lbR)
 
-        for i in range(window, len(df) - window):
-            price_window = df['close'].iloc[i-window:i+window+1]
-            rsi_window = df['rsi'].iloc[i-window:i+window+1]
-
-            # Price extremes
-            if df['close'].iloc[i] == price_window.max():
-                highs.append({
-                    'index': i,
-                    'price': df['close'].iloc[i],
-                    'rsi': df['rsi'].iloc[i],
-                    'time': df.index[i]
-                })
-
-            if df['close'].iloc[i] == price_window.min():
-                lows.append({
-                    'index': i,
-                    'price': df['close'].iloc[i],
-                    'rsi': df['rsi'].iloc[i],
-                    'time': df.index[i]
-                })
-
-        return highs, lows
-
-    def analyze_divergence(points: list, point_type: str) -> list:
-        """Analyze sequence of points for divergence with stricter conditions"""
-        if len(points) < 2:
-            return []
-
-        divergences = []
-        for i in range(1, len(points)):
-            current = points[i]
-            previous = points[i-1]
-
-            # Calculate time difference to avoid false signals
-            time_diff = (current['time'] - previous['time']
-                         ).total_seconds() / 3600
-            if time_diff < 4:  # Minimum 4 hours between points
-                continue
-
-            if point_type == 'low':
-                # Bullish divergence
-                price_lower = current['price'] < previous['price']
-                rsi_higher = current['rsi'] > previous['rsi']
-
-                if price_lower and rsi_higher:
-                    # Calculate divergence strength
-                    price_change = abs(
-                        (current['price'] - previous['price']) / previous['price'] * 100)
-                    rsi_change = current['rsi'] - previous['rsi']
-
-                    if price_change > 0.5 and rsi_change > 2:  # Minimum thresholds
-                        divergences.append({
-                            'type': 'bullish',
-                            'strength': min(price_change * rsi_change / 10, 100),
-                            'points': {
-                                'start': previous,
-                                'end': current
-                            }
-                        })
-
-            elif point_type == 'high':
-                # Bearish divergence
-                price_higher = current['price'] > previous['price']
-                rsi_lower = current['rsi'] < previous['rsi']
-
-                if price_higher and rsi_lower:
-                    price_change = abs(
-                        (current['price'] - previous['price']) / previous['price'] * 100)
-                    rsi_change = previous['rsi'] - current['rsi']
-
-                    if price_change > 0.5 and rsi_change > 2:
-                        divergences.append({
-                            'type': 'bearish',
-                            'strength': min(price_change * rsi_change / 10, 100),
-                            'points': {
-                                'start': previous,
-                                'end': current
-                            }
-                        })
-
-        return divergences
-
-    # Find extremes
-    highs, lows = find_extremes(recent_data)
-
-    # Detect divergences
-    bullish_divs = analyze_divergence(lows, 'low')
-    bearish_divs = analyze_divergence(highs, 'high')
-
-    return {
-        'bullish': bullish_divs,
-        'bearish': bearish_divs
+    results = {
+        'bullish': [],
+        'bearish': []
     }
+
+    for i in pivots_low:
+        if i >= lbR and i < n - lbR:
+            oscHL = rsi[i] > rsi[i - lbR]  # RSI Higher Low
+            priceLL = data['low'][i] < data['low'][i - lbR]  # Price Lower Low
+            if priceLL and oscHL:
+                results['bullish'].append({
+                    'type': 'Regular Bullish',
+                    'strength': 1,  # Placeholder for strength calculation
+                    'points': {
+                        'start': {'time': data.index[i - lbR], 'price': data['low'][i - lbR], 'rsi': rsi[i - lbR]},
+                        'end': {'time': data.index[i], 'price': data['low'][i], 'rsi': rsi[i]}
+                    }
+                })
+
+    # Regular Bearish Divergence
+    for i in pivots_high:
+        if i >= lbR and i < n - lbR:
+            oscLH = rsi[i] < rsi[i - lbR]  # RSI Lower High
+            # Price Higher High
+            priceHH = data['high'][i] > data['high'][i - lbR]
+            if priceHH and oscLH:
+                results['bearish'].append({
+                    'type': 'Regular Bearish',
+                    'strength': 1,  # Placeholder for strength calculation
+                    'points': {
+                        'start': {'time': data.index[i - lbR], 'price': data['high'][i - lbR], 'rsi': rsi[i - lbR]},
+                        'end': {'time': data.index[i], 'price': data['high'][i], 'rsi': rsi[i]}
+                    }
+                })
+
+    return results
+
+
+# def detect_rsi_divergence(data: pd.DataFrame, lookback: int = 20) -> dict:
+#     """
+#     Detect both bullish and bearish RSI divergences with improved algorithm
+
+#     Parameters:
+#     -----------
+#     data: DataFrame with OHLCV and RSI data
+#     lookback: Number of candles to look back
+
+#     Returns:
+#     --------
+#     dict: Contains both bullish and bearish divergence analysis
+#     """
+#     # Get recent data
+#     recent_data = data.tail(lookback).copy()
+
+#     def find_extremes(df: pd.DataFrame, window: int = 20) -> tuple:
+#         """Find local highs and lows with improved accuracy"""
+#         highs = []
+#         lows = []
+
+#         for i in range(window, len(df) - window):
+#             price_window = df['close'].iloc[i-window:i+window+1]
+#             rsi_window = df['rsi'].iloc[i-window:i+window+1]
+
+#             # Price extremes
+#             if df['close'].iloc[i] == price_window.max():
+#                 highs.append({
+#                     'index': i,
+#                     'price': df['close'].iloc[i],
+#                     'rsi': df['rsi'].iloc[i],
+#                     'time': df.index[i]
+#                 })
+
+#             if df['close'].iloc[i] == price_window.min():
+#                 lows.append({
+#                     'index': i,
+#                     'price': df['close'].iloc[i],
+#                     'rsi': df['rsi'].iloc[i],
+#                     'time': df.index[i]
+#                 })
+
+#         return highs, lows
+
+#     def analyze_divergence(points: list, point_type: str) -> list:
+#         """Analyze sequence of points for divergence with stricter conditions"""
+#         if len(points) < 2:
+#             return []
+
+#         divergences = []
+#         for i in range(1, len(points)):
+#             current = points[i]
+#             previous = points[i-1]
+
+#             # Calculate time difference to avoid false signals
+#             time_diff = (current['time'] - previous['time']
+#                          ).total_seconds() / 3600
+#             if time_diff < 4:  # Minimum 4 hours between points
+#                 continue
+
+#             if point_type == 'low':
+#                 # Bullish divergence
+#                 price_lower = current['price'] < previous['price']
+#                 rsi_higher = current['rsi'] > previous['rsi']
+
+#                 if price_lower and rsi_higher:
+#                     # Calculate divergence strength
+#                     price_change = abs(
+#                         (current['price'] - previous['price']) / previous['price'] * 100)
+#                     rsi_change = current['rsi'] - previous['rsi']
+
+#                     if price_change > 0.5 and rsi_change > 2:  # Minimum thresholds
+#                         divergences.append({
+#                             'type': 'bullish',
+#                             'strength': min(price_change * rsi_change / 10, 100),
+#                             'points': {
+#                                 'start': previous,
+#                                 'end': current
+#                             }
+#                         })
+
+#             elif point_type == 'high':
+#                 # Bearish divergence
+#                 price_higher = current['price'] > previous['price']
+#                 rsi_lower = current['rsi'] < previous['rsi']
+
+#                 if price_higher and rsi_lower:
+#                     price_change = abs(
+#                         (current['price'] - previous['price']) / previous['price'] * 100)
+#                     rsi_change = previous['rsi'] - current['rsi']
+
+#                     if price_change > 0.5 and rsi_change > 2:
+#                         divergences.append({
+#                             'type': 'bearish',
+#                             'strength': min(price_change * rsi_change / 10, 100),
+#                             'points': {
+#                                 'start': previous,
+#                                 'end': current
+#                             }
+#                         })
+
+#         return divergences
+
+#     # Find extremes
+#     highs, lows = find_extremes(recent_data)
+
+#     # Detect divergences
+#     bullish_divs = analyze_divergence(lows, 'low')
+#     bearish_divs = analyze_divergence(highs, 'high')
+
+#     return {
+#         'bullish': bullish_divs,
+#         'bearish': bearish_divs
+#     }

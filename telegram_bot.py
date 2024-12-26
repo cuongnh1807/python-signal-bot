@@ -186,18 +186,6 @@ class TelegramBot:
                     f"• Setup Quality: {setup['setup_quality']:.2f}/100 ({setup['entry_quality']})\n"
                     f"• Order Block Range: {setup['ob_level']}\n\n"
                     f"• Trade Recommendation: {setup['trade_recommendation']}\n\n"
-                    f"📐 <b>Entry Zones</b>\n"
-                    f"  ▪️ Aggressive: {setup['entry_prices']['aggressive']:.2f}\n"
-                    f"  ▪️ Moderate: {setup['entry_prices']['moderate']:.2f}\n"
-                    f"  ▪️ Conservative: {setup['entry_prices']['conservative']:.2f}\n"
-                    f"• Stop Loss: {setup['stop_loss']:.2f}\n"
-                    f"🎯 <b>Take Profit Levels</b>\n"
-                    f"  ▪️ TP1: {setup.get('take_profit_levels', {}).get('tp1', 0):.2f}\n"
-                    f"  ▪️ TP2: {setup.get('take_profit_levels', {}).get('tp2', 0):.2f}\n"
-                    f"  ▪️ TP3: {setup.get('take_profit_levels', {}).get('tp3', 0):.2f}\n\n"
-                    f"⚖️ <b>Risk Management</b>\n"
-                    f"• Opportunity: {(setup['risk_percentage'] * 100):.2f}% ({setup['risk_rating']})\n"
-                    f"• Suggested Leverage: {setup['suggested_leverage']}x\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                 )
 

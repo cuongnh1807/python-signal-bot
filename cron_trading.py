@@ -87,7 +87,7 @@ class TradingBot:
             # Analyze trading setups
             trade_setups = analyze_trading_setup(df, swing_hl)
             result = find_closest_signal(
-                df, trade_setups['current_price'], limit=5, loopback=15)
+                df, trade_setups['current_price'], limit=10, loopback=15)
 
             # Create signal lines
             signal_lines = []

@@ -3,7 +3,7 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from binance.client import Client
-from smartmoneyconcepts.smc import smc
+from indicators.pivot_standards import pivot_points
 
 
 class PivotPointsAnalyzer:
@@ -36,96 +36,98 @@ class PivotPointsAnalyzer:
         df.set_index('timestamp', inplace=True)
         return df
 
-    def plot_pivot_points(self, data: pd.DataFrame, method='traditional', timeframe='m15', levels=3):
-        """
-        Plot candlestick chart with pivot points
-
-        Parameters:
-        - method: Pivot point calculation method
-            'traditional', 'fibonacci', 'woodie', 'classic', 'demark', 'camarilla'
-        - timeframe: Time period for calculations
-            'm15': 15 minutes
-            '1d': Daily
-            '1w': Weekly
-            '1M': Monthly
-            '3M': Quarterly
-            '12M': Yearly
-        - levels: Number of levels to show (1-5)
-        """
+    def plot_pivot_points(self, df, pivot_type='Traditional', pivot_timeframe='Auto',
+                          use_daily_based=True, show_labels=True, show_prices=True,
+                          max_historical_pivots=10):
+        """Plot pivot points with full TradingView-like styling"""
 
         # Calculate pivot points
-        pivot_data = smc.pivot_points(
-            data, method=method, timeframe=timeframe, levels=levels)
+        pivot_df = smc.pivot_points(
+            df,
+            pivot_type=pivot_type,
+            pivot_timeframe=pivot_timeframe,
+            use_daily_based=use_daily_based,
+            show_labels=show_labels,
+            show_prices=show_prices,
+            max_historical_pivots=max_historical_pivots
+        )
 
-        # Create candlestick chart
-        fig = go.Figure(data=[go.Candlestick(
-            x=data.index,
-            open=data['open'],
-            high=data['high'],
-            low=data['low'],
-            close=data['close'],
-            name='BTCUSDT'
-        )])
+        # Create figure
+        fig = go.Figure()
 
-        # Color schemes for different methods
-        colors = {
-            'traditional': {'r': ['red', 'orange', 'pink'], 's': ['green', 'lightgreen', 'lime']},
-            'woodie': {'r': ['purple', 'magenta', 'violet'], 's': ['cyan', 'turquoise', 'aqua']},
-            'camarilla': {'r': ['red', 'crimson', 'darkred', 'maroon'],
-                          's': ['green', 'seagreen', 'darkgreen', 'olive']},
-            'demark': {'r': ['red'], 's': ['green']},
-            'fibonacci': {'r': ['gold', 'orange', 'red'], 's': ['lightgreen', 'green', 'darkgreen']}
-        }
-
-        # Add pivot line
-        fig.add_trace(go.Scatter(
-            x=pivot_data.index,
-            y=pivot_data['pivot'],
-            mode='lines',
-            name='Pivot',
-            line=dict(color='yellow', width=1)
+        # Add candlestick chart
+        fig.add_trace(go.Candlestick(
+            x=df.index,
+            open=df['open'],
+            high=df['high'],
+            low=df['low'],
+            close=df['close'],
+            name='Price'
         ))
 
-        # Add resistance levels
-        r_colors = colors[method.lower()]['r']
-        max_levels = len(r_colors)
-        for i in range(1, min(levels + 1, max_levels + 1)):
-            if f'r{i}' in pivot_data.columns:
-                fig.add_trace(go.Scatter(
-                    x=pivot_data.index,
-                    y=pivot_data[f'r{i}'],
-                    mode='lines',
-                    name=f'R{i}',
-                    line=dict(color=r_colors[i-1], width=1, dash='dash')
-                ))
+        # Color scheme for pivot levels
+        colors = {
+            'P': '#ffffff',   # White for pivot
+            'R': '#ff4444',   # Red for resistance
+            'S': '#44ff44'    # Green for support
+        }
 
-        # Add support levels
-        s_colors = colors[method.lower()]['s']
-        for i in range(1, min(levels + 1, max_levels + 1)):
-            if f's{i}' in pivot_data.columns:
-                fig.add_trace(go.Scatter(
-                    x=pivot_data.index,
-                    y=pivot_data[f's{i}'],
-                    mode='lines',
-                    name=f'S{i}',
-                    line=dict(color=s_colors[i-1], width=1, dash='dash')
-                ))
+        # Add pivot lines and labels
+        for col in pivot_df.columns:
+            # Determine level type and color
+            level_type = col[0]  # 'P', 'R' or 'S'
+            color = colors.get(level_type, '#ffffff')
+
+            # Adjust opacity for historical pivots
+            period = col.split('_p')[-1] if '_p' in col else '0'
+            opacity = 0.7 * (1 - float(period) * 0.2)
+
+            # Add line
+            fig.add_trace(go.Scatter(
+                x=df.index,
+                y=[pivot_df[col].iloc[0]] * len(df.index),
+                name=col,
+                line=dict(
+                    color=color,
+                    width=1,
+                    dash='dash'
+                ),
+                opacity=max(opacity, 0.2)
+            ))
+
+            # Add label if enabled
+            if show_labels:
+                label_text = f"{col}"
+                if show_prices:
+                    label_text += f" ({pivot_df[col].iloc[0]:.2f})"
+
+                fig.add_annotation(
+                    x=df.index[-1],
+                    y=pivot_df[col].iloc[0],
+                    text=label_text,
+                    showarrow=False,
+                    xanchor='left',
+                    font=dict(
+                        color=color,
+                        size=10
+                    )
+                )
 
         # Update layout
         fig.update_layout(
-            title=f'BTCUSDT with {method.capitalize()} Pivot Points ({timeframe})',
+            title=f"{pivot_type} Pivot Points ({pivot_timeframe})",
             yaxis_title='Price',
+            xaxis_title='Date',
             template='plotly_dark',
-            xaxis_rangeslider_visible=False
+            height=800,
+            showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01
+            )
         )
-
-        # Print current levels
-        print(f"\nCurrent {method.capitalize()} Pivot Levels ({timeframe}):")
-        print(f"Pivot: {pivot_data['pivot'].iloc[-1]:.2f}")
-
-        for col in pivot_data.columns:
-            if col != 'pivot':
-                print(f"{col.upper()}: {pivot_data[col].iloc[-1]:.2f}")
 
         return fig
 
@@ -135,20 +137,48 @@ def main():
     data = analyzer.get_historical_data(
         symbol='BTCUSDT',
         interval='15m',
-        lookback_days=1
+        lookback_days=2
     )
 
-    # Plot different types of pivot points
-    methods = ['traditional', 'fibonacci', 'woodie', 'demark', 'camarilla']
+    pivot_df = pivot_points(
+        ohlc=data,
+        pivot_type='Traditional',
+        pivot_timeframe='Auto',
+        use_daily_based=True,
+        max_historical_pivots=15
+    )
 
-    for method in methods:
-        print(f"\nAnalyzing {method.capitalize()} Pivot Points...")
-        analyzer.plot_pivot_points(
-            data=data,
-            method=method,
-            timeframe='m15',
-            levels=3
-        )
+    # Group columns by period
+    current_period = [col for col in pivot_df.columns if '_p' not in col]
+    historical = [col for col in pivot_df.columns if '_p' in col]
+
+    # Print current period
+    print("\nCurrent Period:")
+    print("-" * 20)
+    for col in sorted(current_period):
+        print(f"{col:3}: {pivot_df[col].iloc[0]:,.2f}")
+
+    # Print historical periods
+    for i in range(1, 10):
+        period_cols = [col for col in historical if f'_p{i}' in col]
+        if period_cols:
+            print(f"\nPeriod -{i}:")
+            print("-" * 20)
+            for col in sorted(period_cols):
+                base_name = col.split('_')[0]
+                print(f"{base_name:3}: {pivot_df[col].iloc[0]:,.2f}")
+
+    # Plot different types of pivot points
+
+        # fig = analyzer.plot_pivot_points(
+        #     df=data,
+        #     pivot_type=method,
+        #     pivot_timeframe='m15',
+        #     use_daily_based=True,
+        #     show_labels=True,
+        #     show_prices=True,
+        #     max_historical_pivots=15
+        # )
         # fig.show()
 
 

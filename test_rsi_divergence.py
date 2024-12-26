@@ -4,7 +4,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from binance.client import Client
-from strategy import detect_rsi_divergence
+from indicators.rsi_divergence import find_rsi_divergences
+from indicators.trap import detect_traps, plot_with_traps
+from strategy import calculate_rsi
 
 
 def fetch_btc_data(interval='15m', lookback_hours=24):
@@ -30,18 +32,13 @@ def fetch_btc_data(interval='15m', lookback_hours=24):
     df['time'] = pd.to_datetime(df['timestamp'], unit='ms')
     df.set_index('time', inplace=True)
 
-    # Calculate RSI
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    df['rsi'] = 100 - (100 / (1 + rs))
-
     return df
 
 
 def plot_divergences(data: pd.DataFrame, divergences: dict) -> go.Figure:
-    """Create interactive plot showing RSI divergences with improved visualization"""
+    """Create interactive plot showing RSI divergences"""
+
+    data['rsi'] = calculate_rsi(data)
 
     # Create subplots
     fig = make_subplots(
@@ -77,34 +74,46 @@ def plot_divergences(data: pd.DataFrame, divergences: dict) -> go.Figure:
     )
 
     # Plot divergences
-    for div_type in ['bullish', 'bearish']:
-        color = 'green' if div_type == 'bullish' else 'red'
+    colors = {
+        'regular_bullish': 'green',
+        'hidden_bullish': 'lightgreen',
+        'regular_bearish': 'red',
+        'hidden_bearish': 'pink'
+    }
 
-        for div in divergences[div_type]:
-            start = div['points']['start']
-            end = div['points']['end']
+    for div_type, point_pairs in divergences.items():
+        if not point_pairs:
+            continue
 
-            # Add price lines
+        color = colors[div_type]
+
+        for prev_idx, curr_idx in point_pairs:
+            # Vẽ đường kẻ nối trên biểu đồ giá
+            if 'bullish' in div_type:
+                price_values = data['low']
+            else:
+                price_values = data['high']
+
             fig.add_trace(
                 go.Scatter(
-                    x=[start['time'], end['time']],
-                    y=[start['price'], end['price']],
+                    x=[data.index[prev_idx], data.index[curr_idx]],
+                    y=[price_values[prev_idx], price_values[curr_idx]],
                     mode='lines',
                     line=dict(
                         color=color,
                         width=2,
                         dash='dot'
                     ),
-                    name=f'{div_type.capitalize()} Divergence'
+                    name=f'{div_type.replace("_", " ").title()} Price Line'
                 ),
                 row=1, col=1
             )
 
-            # Add RSI lines
+            # Vẽ đường kẻ nối trên biểu đồ RSI
             fig.add_trace(
                 go.Scatter(
-                    x=[start['time'], end['time']],
-                    y=[start['rsi'], end['rsi']],
+                    x=[data.index[prev_idx], data.index[curr_idx]],
+                    y=[data['rsi'][prev_idx], data['rsi'][curr_idx]],
                     mode='lines',
                     line=dict(
                         color=color,
@@ -116,16 +125,6 @@ def plot_divergences(data: pd.DataFrame, divergences: dict) -> go.Figure:
                 row=2, col=1
             )
 
-            # Add strength annotation
-            fig.add_annotation(
-                x=end['time'],
-                y=end['price'],
-                text=f"Strength: {div['strength']:.1f}",
-                showarrow=True,
-                arrowhead=1,
-                row=1, col=1
-            )
-
     # Update layout
     fig.update_layout(
         title='RSI Divergences',
@@ -134,35 +133,53 @@ def plot_divergences(data: pd.DataFrame, divergences: dict) -> go.Figure:
         height=800
     )
 
+    # Add RSI levels
+    fig.add_hline(y=70, line_dash="dash", line_color="gray", row=2, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="gray", row=2, col=1)
+
     return fig
 
 
 def test_with_sample_data():
     """Test the divergence detection with real BTC data"""
-    # Fetch 48 hours of 15m BTC data
-    data = fetch_btc_data(lookback_hours=24*7)
-    divergences = detect_rsi_divergence(data, lookback=400)
+    # Fetch data
+    data = fetch_btc_data(lookback_hours=24*5)
+
+    # Find divergences
+    divergences = find_rsi_divergences(
+        data,
+        rsi_period=14,
+        left_bars=5,
+        right_bars=5,
+        range_lower=5,
+        range_upper=60
+    )
+    traps = detect_traps(data)
+    print(traps)
 
     # Create and show plot
     fig = plot_divergences(data, divergences)
+    fig = plot_with_traps(fig, data, traps)
     fig.show()
 
     # Print analysis
     print("\nDivergence Analysis:")
     print("===================")
 
-    for div_type in ['bullish', 'bearish']:
-        if divergences[div_type]:  # If list is not empty
-            print(f"\n{div_type.capitalize()} Divergences:")
-            for i, div in enumerate(divergences[div_type], 1):
-                print(f"\nDivergence #{i}:")
-                print(f"Strength: {div['strength']:.1f}")
-                print(
-                    f"Time Range: {div['points']['start']['time']} -> {div['points']['end']['time']}")
-                print(
-                    f"Price: {div['points']['start']['price']:.2f} -> {div['points']['end']['price']:.2f}")
-                print(
-                    f"RSI: {div['points']['start']['rsi']:.1f} -> {div['points']['end']['rsi']:.1f}")
+    for div_type, point_pairs in divergences.items():
+        if point_pairs:
+            print(f"\n{div_type.replace('_', ' ').title()}:")
+            for prev_idx, curr_idx in point_pairs:
+                print(f"\nPrevious Point:")
+                print(f"Time: {data.index[prev_idx]}")
+                print(f"Price: {data['close'][prev_idx]:.2f}")
+                print(f"RSI: {data['rsi'][prev_idx]:.1f}")
+
+                print(f"\nCurrent Point:")
+                print(f"Time: {data.index[curr_idx]}")
+                print(f"Price: {data['close'][curr_idx]:.2f}")
+                print(f"RSI: {data['rsi'][curr_idx]:.1f}")
+                print("-" * 40)
 
 
 if __name__ == "__main__":

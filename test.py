@@ -1219,10 +1219,10 @@ def main():
     start_time = end_time - timedelta(days=10)
 
     # Fetch BTCUSDT 15-minute data
-    data = fetcher.get_historical_klines('BTCUSDT', '15m', start_time)
+    data = fetcher.get_historical_klines('SOLUSDT', '15m', start_time)
 
     current_price = float(
-        fetcher.client.get_symbol_ticker(symbol="BTCUSDT")['price'])
+        fetcher.client.get_symbol_ticker(symbol="SOLUSDT")['price'])
     print(f"Current price: {current_price}")
 
     # Ensure column names are lowercase

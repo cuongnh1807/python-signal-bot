@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 import os
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 from aiohttp import web
 import asyncio
@@ -49,25 +51,48 @@ class TradingBot:
 
         # Initialize components
         self.data_fetcher = BinanceDataFetcher()
-        self.telegram_bot = TelegramBot(
-            token=os.getenv('TELEGRAM_BOT_TOKEN'),
-            chat_id=os.getenv('TELEGRAM_CHAT_ID')
-        )
+
+        # Initialize multiple Telegram channels with topics
+        self.telegram_channels = {
+            'BTCUSDT': TelegramBot(
+                token=os.getenv('TELEGRAM_BOT_TOKEN'),
+                chat_id=os.getenv('TELEGRAM_CHAT_ID'),
+                # Default topic ID for BTC
+                topic_id=os.getenv('BTC_TOPIC_ID', '1')
+            ),
+            'ETHUSDT': TelegramBot(
+                token=os.getenv('TELEGRAM_BOT_TOKEN'),
+                chat_id=os.getenv('TELEGRAM_CHAT_ID'),
+                # Default topic ID for ETH
+                topic_id=os.getenv('ETH_TOPIC_ID', '6216')
+            ),
+            'SOLUSDT': TelegramBot(
+                token=os.getenv('TELEGRAM_BOT_TOKEN'),
+                chat_id=os.getenv('TELEGRAM_CHAT_ID'),
+                # Default topic ID for SOL
+                topic_id=os.getenv('SOL_TOPIC_ID', '6215')
+            )
+        }
 
         # Trading parameters
-        self.symbols = ['BTCUSDT']
+        self.symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']
         self.timeframes = {
             '15m': 15,
-            # '1h': 60,
-            # '4h': 240
+
         }
+
+        # Initialize thread pool
+        self.thread_pool = ThreadPoolExecutor(max_workers=len(self.symbols))
 
     async def fetch_and_analyze(self, symbol: str, interval: str):
         """Fetch data and analyze trading setups for a symbol/timeframe"""
         try:
             logger.info(f"Analyzing {symbol} on {interval} timeframe")
 
-            # Calculate start time (5 days of data)
+            # Get the appropriate telegram bot for this symbol
+            telegram_bot = self.telegram_channels[symbol]
+
+            # Calculate start time (7 days of data)
             start_time = datetime.now() - timedelta(days=7)
 
             # Fetch market data
@@ -80,7 +105,9 @@ class TradingBot:
             if df.empty:
                 logger.warning(f"No data received for {symbol} {interval}")
                 return
+
             df = df.iloc[:-1].copy()
+
             # Calculate swing highs/lows
             swing_hl = smc.swing_highs_lows(df, swing_length=5)
 
@@ -92,7 +119,6 @@ class TradingBot:
             # Create signal lines
             signal_lines = []
             for signal in result['signals']:
-
                 signal_line = (
                     f"{signal['signal_type']} | "
                     f"Entry: {signal['entry_price']:.2f} | "
@@ -107,34 +133,53 @@ class TradingBot:
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
             )
 
-            # Send trading setups through Telegram
-            await self.telegram_bot.send_trading_setup(trade_setups, symbol, interval, header_message=message)
+            # Send trading setups through Telegram to specific topic
+            await telegram_bot.send_trading_setup(
+                trade_setups,
+                symbol,
+                interval,
+                header_message=message
+            )
+
             logger.info(
-                f"Sent {len(trade_setups)} trading setups for {symbol} {interval}")
+                f"Sent {len(trade_setups)} trading setups for {symbol} {interval}"
+            )
 
         except Exception as e:
             logger.exception(e)
-
             error_msg = f"Error analyzing {symbol} {interval}: {str(e)}"
             logger.error(error_msg)
-            await self.telegram_bot.send_error_alert(error_msg)
+            await telegram_bot.send_error_alert(error_msg)
+
+    async def analyze_symbol(self, symbol: str):
+        """Analyze a single symbol across all timeframes"""
+        for interval in self.timeframes:
+            await self.fetch_and_analyze(symbol, interval)
+            await asyncio.sleep(1)  # Rate limiting
 
     async def scan_markets(self):
-        """Scan all markets for trading setups"""
+        """Scan all markets for trading setups using multiple threads"""
         try:
             logger.info("Starting market scan")
 
+            # Create tasks for each symbol
+            tasks = []
             for symbol in self.symbols:
-                for interval in self.timeframes:
-                    await self.fetch_and_analyze(symbol, interval)
-                    await asyncio.sleep(1)  # Rate limiting
+                # Run each symbol analysis in a separate thread
+                task = asyncio.create_task(self.analyze_symbol(symbol))
+                tasks.append(task)
+
+            # Wait for all tasks to complete
+            await asyncio.gather(*tasks)
 
             logger.info("Market scan completed")
 
         except Exception as e:
             error_msg = f"Error in market scan: {str(e)}"
             logger.error(error_msg)
-            await self.telegram_bot.send_error_alert(error_msg)
+            # Send error to all channels
+            for bot in self.telegram_channels.values():
+                await bot.send_error_alert(error_msg)
 
 
 async def main():

@@ -6,16 +6,18 @@ import pytz
 
 
 class TelegramBot:
-    def __init__(self, token: str, chat_id: str):
+    def __init__(self, token: str, chat_id: str, topic_id: str = None):
         """
         Initialize the Trading Bot
 
         Parameters:
         - token: Telegram bot token from BotFather
         - chat_id: Telegram chat ID where messages will be sent
+        - topic_id: Telegram topic ID where messages will be sent
         """
         self.token = token
         self.chat_id = chat_id
+        self.topic_id = topic_id
         self.app = ApplicationBuilder().token(self.token).build()
 
         # Configure logging
@@ -25,10 +27,11 @@ class TelegramBot:
         )
 
     async def send_message(self, message: str):
-        """Send a simple text message"""
+        """Send a simple text message to specific topic"""
         try:
             await self.app.bot.send_message(
                 chat_id=self.chat_id,
+                message_thread_id=self.topic_id,  # Add topic support
                 text=message,
                 parse_mode='HTML'
             )

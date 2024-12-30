@@ -58,7 +58,7 @@ class TradingBot:
                 token=os.getenv('TELEGRAM_BOT_TOKEN'),
                 chat_id=os.getenv('TELEGRAM_CHAT_ID'),
                 # Default topic ID for BTC
-                topic_id=os.getenv('BTC_TOPIC_ID', '1')
+                topic_id=None
             ),
             'ETHUSDT': TelegramBot(
                 token=os.getenv('TELEGRAM_BOT_TOKEN'),

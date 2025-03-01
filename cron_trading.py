@@ -1,7 +1,6 @@
 from binance_data_fetcher import BinanceDataFetcher
+from futures_strategy import FuturesStrategy
 from telegram_bot import TelegramBot
-from strategy import analyze_trading_setup, find_closest_signal, generate_signals
-from smartmoneyconcepts.smc import smc
 import time
 from datetime import datetime, timedelta
 import logging
@@ -107,42 +106,110 @@ class TradingBot:
                 return
 
             df = df.iloc[:-1].copy()
+            current_price = df.iloc[-1]['close']
 
-            # Calculate swing highs/lows
-            swing_hl = smc.swing_highs_lows(df, swing_length=5)
+            # Initialize futures strategy
+            futures_strategy = FuturesStrategy(
+                initial_capital=1000.0,
+                max_risk_per_trade=0.02,
+                take_profit_levels={'tp1': 0.5, 'tp2': 1.0, 'tp3': 2.0},
+                default_leverage=10
+            )
 
-            # Analyze trading setups
-            trade_setups = analyze_trading_setup(df, swing_hl)
-            result = find_closest_signal(
-                df, trade_setups['current_price'], limit=10, loopback=15)
+            # Analyze market
+            analysis = futures_strategy.analyze_market(df)
+
+            # Generate orders with volume filtering
+            orders = futures_strategy.generate_orders(
+                analysis,
+                min_setup_quality=65.0,
+                min_volume_ratio=2,  # Minimum OB/Avg volume ratio
+                respect_pressure=True  # Respect market pressure
+            )
+
+            # Add symbol to orders
+            for order in orders:
+                order['symbol'] = symbol
 
             # Create signal lines
             signal_lines = []
-            for signal in result['signals']:
+            for order in orders:
+                # Determine emoji based on setup type
+                if 'LONG' in order['setup_type']:
+                    direction_emoji = "🟢"
+                elif 'SHORT' in order['setup_type']:
+                    direction_emoji = "🔴"
+                else:
+                    direction_emoji = "⚪️"
+
+                # Get OB levels
+                ob_levels = order.get('ob_levels', {})
+                ob_bottom = ob_levels.get('bottom', 0)
+                ob_top = ob_levels.get('top', 0)
+
+                # Calculate distance from current price to OB
+                price_to_ob_percent = (
+                    (order['entry_price'] / current_price) - 1) * 100
+                distance_emoji = "🔍" if abs(price_to_ob_percent) < 1 else "🔭"
+
+                # Format warnings if any
+                warning_text = ""
+                if order.get('warning_messages'):
+                    warnings = order.get('warning_messages', [])
+                    if len(warnings) > 0:
+                        warning_text = f"⚠️ {warnings[0]}"
+
+                # Format risk-reward ratio
+                rr_ratio = order.get('risk_reward_ratio', {}).get('tp2', 0)
+                rr_emoji = "⭐" if rr_ratio >= 2 else "✅" if rr_ratio >= 1 else "⚠️"
+
+                # Format take profit levels
+                tp_levels = order.get('take_profit', {})
+                tp_text = ""
+                if tp_levels:
+                    tp_text = "🎯 Take Profit:\n"
+                    for tp_name, tp_price in tp_levels.items():
+                        # Calculate R:R for this TP level
+                        tp_rr = order.get('risk_reward_ratio',
+                                          {}).get(tp_name, 0)
+                        tp_text += f"   • {tp_name.upper()}: {tp_price:.2f} (R:R {tp_rr:.1f})\n"
+
                 signal_line = (
-                    f"{signal['signal_type']} | "
-                    f"Entry: {signal['entry_price']:.2f} | "
-                    f"Distance: {signal['price_distance']:.1f}% | "
-                    f"{signal['safety_emoji']} {signal['safety_score']:.1f}%"
+                    f"{direction_emoji} {order['setup_type']} | "
+                    f"Entry: {order['entry_price']:.2f} | "
+                    f"Stop: {order['stop_loss']:.2f} | "
+                    f"Lev: {order.get('leverage', 20)}x | "
+                    f"R:R: {rr_emoji} {rr_ratio:.1f} | "
+                    f"OB: {ob_bottom:.0f}-{ob_top:.0f} {distance_emoji} {abs(price_to_ob_percent):.1f}% | "
+                    f"Vol: {order.get('volume_ratio', 0):.1f}x | "
+                    f"Quality: {order['setup_quality']:.1f}%"
                 )
+
+                # Add warning and take profit on new lines
+                if warning_text:
+                    signal_line += f"\n   {warning_text}"
+
+                if tp_text:
+                    signal_line += f"\n{tp_text}"
+
                 signal_lines.append(signal_line)
 
             message = (
-                f"🎯 <b>Trading Signals</b>\n"
+                f"🎯 <b>Trading Signals for {symbol} {interval}</b>\n"
                 f"{chr(10).join(signal_lines)}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
             )
 
             # Send trading setups through Telegram to specific topic
             await telegram_bot.send_trading_setup(
-                trade_setups,
+                analysis,
                 symbol,
                 interval,
                 header_message=message
             )
 
             logger.info(
-                f"Sent {len(trade_setups)} trading setups for {symbol} {interval}"
+                f"Sent {len(orders)} trading orders for {symbol} {interval}"
             )
 
         except Exception as e:
@@ -188,18 +255,18 @@ async def main():
 
         bot = TradingBot()
 
-        # await bot.scan_markets()
+        await bot.scan_markets()
 
         # Create tasks for different timeframe scans
-        scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
+        # scheduler = AsyncIOScheduler(timezone=pytz.timezone('UTC'))
 
         # Schedule the scan_markets to run at minutes 1, 16, 31, 46
         # scheduler.add_job(bot.scan_markets, 'cron', minute='*/10',  # Run every 10 minutes
         #                   second='30')
-        scheduler.add_job(bot.scan_markets, 'cron', minute='1,16,31,46')
+        # scheduler.add_job(bot.scan_markets, 'cron', minute='1,16,31,46')
 
-        scheduler.start()
-        await start_web_server()
+        # scheduler.start()
+        # await start_web_server()
 
         # Keep the main program running
         while True:

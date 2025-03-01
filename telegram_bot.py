@@ -70,30 +70,11 @@ class TelegramBot:
             setups = trade_setups['trade_setups']
             velocity = trade_setups['velocity']
             vol_analysis = trade_setups.get('volume_analysis', {})
+
+            # get macd info from volume_analysis
+            macd_info = velocity.get('macd_signals', {})
             current_price = trade_setups.get('current_price', 0)
             current_trend = trade_setups.get('current_trend', 'N/A')
-
-            # Filter out setups that are too far or have distance warning
-            filtered_setups = [
-                setup for setup in setups
-                # Only include setups within 3% of current price
-                if setup['price_distance'] <= 4.0 and
-                "Entry far from current price - Higher risk" not in setup.get(
-                    'warning_messages', [])
-            ]
-
-            # Limit to top 3 closest setups
-            # filtered_setups = filtered_setups[:3]
-
-            # Get volume analysis from the first setup (if any)
-            bullish_setups = [
-                s for s in filtered_setups if s['position_type'].upper() == 'LONG']
-
-            bullish_setups = bullish_setups[:2]
-            bearish_setups = [
-                s for s in filtered_setups if s['position_type'].upper() == 'SHORT']
-
-            bearish_setups = bearish_setups[:2]
 
             # Format volume trend indicators
             volume_trend_value = vol_analysis.get('volume_trend', 0)
@@ -110,6 +91,28 @@ class TelegramBot:
             candle_emoji = "🟢" if last_candle['score'] >= 70 else "🔴" if last_candle['score'] <= 30 else "🟡"
             pressure_emoji = "🟢" if pressure['score'] >= 70 else "🔴" if pressure['score'] <= 30 else "🟡"
 
+            # Get MACD signals
+            macd_buy = macd_info.get('buy_signal', False)
+            macd_sell = macd_info.get('sell_signal', False)
+            macd_direction = macd_info.get('macd_direction', 'NEUTRAL')
+            histogram_direction = macd_info.get(
+                'histogram_direction', 'NEUTRAL')
+
+            # Get EMA price information
+            ma_analysis = velocity.get('ma_analysis', {})
+            ema50 = ma_analysis.get('ema50', 0)
+            ema200 = ma_analysis.get('ema200', 0)
+
+            # Format MACD signal
+            macd_signal = "🟢 BUY" if macd_buy else "🔴 SELL" if macd_sell else "⚪️ NEUTRAL"
+            macd_trend = f"MACD: {macd_direction} | Histogram: {histogram_direction}"
+
+            # Calculate price position relative to EMAs
+            price_to_ema50 = ((current_price / ema50) - 1) * \
+                100 if ema50 > 0 else 0
+            price_to_ema200 = ((current_price / ema200) -
+                               1) * 100 if ema200 > 0 else 0
+
             message = (
                 f"💹 <b>Market Status</b>\n"
                 f"• Symbol: {symbol}\n"
@@ -119,90 +122,28 @@ class TelegramBot:
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📊 <b>Volume Analysis</b>\n"
                 f"• Volume Trend: {volume_emoji} {volume_trend_value:.1f}%\n"
-                f"• Buy/Sell Ratio: {vol_analysis.get('buy_ratio', 0):.1f}% / {vol_analysis.get('sell_ratio', 0):.1f}%\n"
                 f"• Pressure: {pressure_emoji} {pressure['pressure']}\n"
                 f"• Current Volume: {trade_setups.get('current_volume', 0):.1f}\n"
                 f"• Current Volume Ratio: {trade_setups.get('current_volume_ratio', 0):.1f}\n"
                 f"• Last Candle: {candle_emoji} {last_candle['type']} ({last_candle['score']}%)\n"
-                f"• Pattern: {vol_analysis['recent_pattern']['dominant_side']}"
-                f"({vol_analysis['recent_pattern']['bullish_count']}/{vol_analysis['recent_pattern']['bearish_count']})\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"⚡️ <b>Momentum Analysis</b>\n"
-                f"• Price: {velocity.get('price', {}).get('current', 0):.2f}% "
-                f"({'↗️' if velocity.get('price', {}).get('condition') == 'INCREASING' else '↘️'})\n"
-                f"• Volume: {velocity.get('volume', {}).get('current', 0):.2f}% "
-                f"({'📈' if velocity.get('volume', {}).get('condition') == 'INCREASING' else '📉'})\n"
-                f"• MA Status: {'Above SMA50 ↗️' if velocity.get('ma_analysis', {}).get('above_sma50') else 'Below SMA50 ↘️'}\n"
+                f"• MA Status: {'Above EMA50 ↗️' if velocity.get('ma_analysis', {}).get('above_ema50') else 'Below EMA50 ↘️'}\n"
+                f"• EMA50: {ema50:.2f} ({price_to_ema50:.2f}%)\n"
+                f"• EMA200: {ema200:.2f} ({price_to_ema200:.2f}%)\n"
                 f"• EMA Signal: {'✅ Bullish Cross' if velocity.get('ma_analysis', {}).get('ema_crossover') else '❌ No Cross'}\n"
                 f"• RSI ({velocity.get('rsi_analysis', {}).get('current', 0):.1f}): "
                 f"{'🔴 Overbought' if velocity.get('rsi_analysis', {}).get('overbought') else '🟢 Oversold' if velocity.get('rsi_analysis', {}).get('oversold') else '⚪️ Neutral'}\n"
-                "\n🔔 <b>Signals</b>\n"
-                f"{chr(10).join(f'• {signal}' for signal in velocity.get('signals', []) or ['No signals detected'])}\n"
+                f"• MACD Signal: {macd_signal}\n"
+                f"• MACD Trend: {macd_trend}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
             )
             message += header_message
-            if len(filtered_setups) == 0:
+            if len(setups) == 0:
                 message += (
                     f"🔍 <b>Trading Analysis: {symbol} {timeframe}</b>\n\n"
                     "No valid trading setups within optimal range detected."
                 )
-
-            def format_setup(setup, index):
-                # Add distance emoji based on price distance
-                distance_emoji = "🎯" if setup['price_distance'] <= 1.0 else \
-                    "📍" if setup['price_distance'] <= 2.0 else \
-                    "📌"  # if distance > 2.0%
-
-                # Get warning messages
-                warnings = setup.get('warning_messages', [])
-                warning_section = ""
-                if warnings:
-                    warning_section = (
-                        f"⚠️ <b>Warnings</b>\n"
-                        f"{chr(10).join(f'• {w}' for w in warnings)}\n\n"
-                    )
-
-                # Volume comparison section
-                volume_section = (
-                    f"📊 <b>Volume Analysis</b>\n"
-                    f"• OB Volume: {setup.get('ob_volume', 'N/A')}\n"
-                    f"• OB/Avg Ratio: {setup.get('ob_volume_ratio', 0):.2f}x\n"
-                )
-
-                # Entry timing
-                # limit_rec = setup.get('limit_order_recommendation', {})
-                # entry_timing = (
-                #     f"⏱️ <b>Entry Timing</b>\n"
-                #     f"• Status: {limit_rec.get('urgency', 'LOW')} "
-                #     f"({'✅ Ready' if limit_rec.get('place_order') else '⏳ Wait'})\n"
-                #     f"• Note: {limit_rec.get('reason', 'N/A')}\n\n"
-                # )
-
-                return (
-                    f"{distance_emoji} #{index} {setup['setup_type']}\n"
-                    f"{volume_section}"
-                    f"{warning_section}"
-                    f"📝 <b>Setup Description</b>\n"
-                    f"• Type: {setup.get('setup_description', 'N/A')}\n"
-                    f"• Strength: {setup.get('setup_strength', 'N/A')}\n"
-                    f"• Distance from price: {setup['price_distance']:.2f}%\n"
-                    f"• Setup Quality: {setup['setup_quality']:.2f}/100 ({setup['entry_quality']})\n"
-                    f"• Order Block Range: {setup['ob_level']}\n\n"
-                    f"• Trade Recommendation: {setup['trade_recommendation']}\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                )
-
-            # Add bullish setups
-            if bullish_setups:
-                message += "🟢 <b>BULLISH SETUPS</b>\n\n"
-                for i, setup in enumerate(bullish_setups, 1):
-                    message += format_setup(setup, i)
-
-            # Add bearish setups
-            if bearish_setups:
-                message += "🔴 <b>BEARISH SETUPS</b>\n\n"
-                for i, setup in enumerate(bearish_setups, 1):
-                    message += format_setup(setup, i)
 
             # Add timestamp
             message += f"\n⏰ <i>Generated at {self.format_timestamp()}</i>"
@@ -257,7 +198,7 @@ class TelegramBot:
                 if ob_data["OB"][i] != 0:  # If OB exists
                     ob_type = "Bullish" if ob_data["OB"][i] == 1 else "Bearish"
                     active_obs.append(
-                        f"�� {ob_type} OB: {ob_data['Bottom'][i]:.2f} - {ob_data['Top'][i]:.2f}"
+                        f"• {ob_type} OB: {ob_data['Bottom'][i]:.2f} - {ob_data['Top'][i]:.2f}"
                     )
 
             # Format liquidity levels

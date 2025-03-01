@@ -60,22 +60,22 @@ class TradingBot:
                 # Default topic ID for BTC
                 topic_id=None
             ),
-            'ETHUSDT': TelegramBot(
-                token=os.getenv('TELEGRAM_BOT_TOKEN'),
-                chat_id=os.getenv('TELEGRAM_CHAT_ID'),
-                # Default topic ID for ETH
-                topic_id=os.getenv('ETH_TOPIC_ID', '6216')
-            ),
-            'SOLUSDT': TelegramBot(
-                token=os.getenv('TELEGRAM_BOT_TOKEN'),
-                chat_id=os.getenv('TELEGRAM_CHAT_ID'),
-                # Default topic ID for SOL
-                topic_id=os.getenv('SOL_TOPIC_ID', '6215')
-            )
+            # 'ETHUSDT': TelegramBot(
+            #     token=os.getenv('TELEGRAM_BOT_TOKEN'),
+            #     chat_id=os.getenv('TELEGRAM_CHAT_ID'),
+            #     # Default topic ID for ETH
+            #     topic_id=os.getenv('ETH_TOPIC_ID', '6216')
+            # ),
+            # 'SOLUSDT': TelegramBot(
+            #     token=os.getenv('TELEGRAM_BOT_TOKEN'),
+            #     chat_id=os.getenv('TELEGRAM_CHAT_ID'),
+            #     # Default topic ID for SOL
+            #     topic_id=os.getenv('SOL_TOPIC_ID', '6215')
+            # )
         }
 
         # Trading parameters
-        self.symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']
+        self.symbols = ['BTCUSDT']
         self.timeframes = {
             '15m': 15,
 

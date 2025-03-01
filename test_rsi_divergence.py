@@ -16,7 +16,7 @@ def fetch_btc_data(interval='15m', lookback_hours=24):
         (datetime.now() - timedelta(hours=lookback_hours)).timestamp() * 1000)
 
     klines = client.get_historical_klines(
-        "BTCUSDT",
+        "SOLUSDT",
         interval,
         start_str=start_time
     )

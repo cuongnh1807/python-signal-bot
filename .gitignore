@@ -5,3 +5,4 @@ smartmoneyconcepts.egg-info
 __pycache__
 .env
 trading_bot.log
+.codegpt

@@ -17,7 +17,7 @@ class BinanceDataFetcher:
         # Initialize client with API credentials
         self.client = Client(api_key, api_secret)
 
-    def get_historical_klines(self, symbol: str, interval: str, start_time: datetime) -> pd.DataFrame:
+    def get_historical_klines(self, symbol: str, interval: str, start_time: datetime, limit: int = 1000) -> pd.DataFrame:
         """Fetch historical klines/candlestick data"""
         start_ms = int(start_time.timestamp() * 1000)
 
@@ -25,7 +25,7 @@ class BinanceDataFetcher:
             symbol=symbol,
             interval=interval,
             start_str=start_ms,
-            limit=1000
+            limit=limit
         )
 
         # Ensure column names are lowercase

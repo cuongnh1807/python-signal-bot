@@ -464,7 +464,7 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
     }
 
 
-def analyze_trading_setup(data, swing_hl):
+def analyze_trading_setup(data, swing_hl, ignore_old_ob=True):
     """
     Analyze trading setups and calculate order percentages for active order blocks only
     """
@@ -507,7 +507,7 @@ def analyze_trading_setup(data, swing_hl):
             x1 = int(ob_results["MitigatedIndex"][i]
                      if ob_results["MitigatedIndex"][i] != 0 else len(data) - 1)
             # Skip if order block has been mitigated
-            if not (current_time < data.index[x1] + timedelta(minutes=30)):
+            if ignore_old_ob and not (current_time < data.index[x1] + timedelta(minutes=30)):
                 continue
 
             ob_volume = ob_results["OBVolume"][i]

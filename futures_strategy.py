@@ -52,7 +52,7 @@ class FuturesStrategy:
         self.trade_history = []
         self.current_trades = {}
 
-    def analyze_market(self, data: pd.DataFrame) -> Dict:
+    def analyze_market(self, data: pd.DataFrame, ignore_old_ob: bool = True) -> Dict:
         """
         Analyze market data and generate trading setups.
 
@@ -68,7 +68,7 @@ class FuturesStrategy:
         swing_hl = smc.swing_highs_lows(data, swing_length=5)
 
         # Get trading setups
-        return analyze_trading_setup(data, swing_hl)
+        return analyze_trading_setup(data, swing_hl, ignore_old_ob)
 
     def generate_orders(self, analysis: Dict, min_setup_quality: float = 65.0,
                         min_volume_ratio: float = 2.0,
@@ -139,15 +139,49 @@ class FuturesStrategy:
             stop_loss = self._calculate_stop_from_ob(
                 side, ob_bottom, ob_top, entry_price, volume_ratio, volatility)
 
-            # Calculate risk-adjusted position size with fixed 20x leverage
+            # Calculate risk distance in price units
             risk_distance = abs(entry_price - stop_loss)
-            risk_amount = self.capital * self.max_risk_per_trade
-            leverage = 20  # Fixed 20x leverage as requested
-            position_size = (risk_amount / risk_distance) * leverage
 
-            # Calculate take profit levels with dynamic R:R ratios based on volume
-            take_profits = self._calculate_dynamic_take_profits(
-                entry_price, stop_loss, side, setup['setup_type'], volume_ratio)
+            # Fixed leverage at 20x
+            leverage = 20
+            # Calculate base margin percentage based on setup quality and volume ratio
+            # Higher quality setups get higher percentage of capital
+            base_percent = 0.1  # Start with 10% of capital
+            # Adjust based on setup quality (0-20% bonus)
+            quality_bonus = (setup['setup_quality'] -
+                             65) / 100  # 65 is min quality
+
+            # Adjust based on volume ratio (0-15% bonus)
+            volume_bonus = min(volume_ratio / 20, 0.15)
+
+            # Calculate total margin percentage (10-45% of capital)
+            margin_percent = min(
+                base_percent + quality_bonus + volume_bonus, 0.45)
+
+            # Calculate margin amount based on current capital
+            margin_amount = self.capital * margin_percent
+
+            # Ensure margin is between $100 and $500
+            margin_amount = max(100, min(500, margin_amount))
+
+            # Calculate position size based on margin and leverage
+            position_size = margin_amount * leverage
+
+            # Calculate maximum acceptable loss (10% of margin)
+            max_acceptable_loss = margin_amount * 0.1
+
+            # Check if risk is acceptable
+            price_risk_per_unit = risk_distance
+            total_price_risk = price_risk_per_unit * \
+                (position_size / entry_price)
+
+            # If risk is too high, adjust position size down
+            if total_price_risk > max_acceptable_loss:
+                adjustment_factor = max_acceptable_loss / total_price_risk
+                position_size = position_size * adjustment_factor
+                margin_amount = position_size / leverage
+                logger.debug(
+                    f"Adjusted position size down due to high risk. New margin: ${margin_amount:.2f}")
 
             # Create order
             order = {
@@ -157,7 +191,8 @@ class FuturesStrategy:
                 'entry_price': entry_price,
                 'entry_options': entry_prices,
                 'stop_loss': stop_loss,
-                'take_profit': take_profits,
+                'take_profit': self._calculate_dynamic_take_profits(
+                    entry_price, stop_loss, side, setup['setup_type'], volume_ratio),
                 'position_size': position_size,
                 'leverage': leverage,
                 'setup_quality': setup['setup_quality'],
@@ -165,14 +200,15 @@ class FuturesStrategy:
                 'ob_levels': {'bottom': ob_bottom, 'top': ob_top},
                 'timestamp': datetime.now(),
                 'status': 'PENDING',
-                'risk_amount': risk_amount,
+                'margin_amount': margin_amount,
+                'margin_percent': margin_percent * 100,  # Store as percentage for reference
+                'max_loss_amount': max_acceptable_loss,
                 'volume_ratio': volume_ratio,
                 'market_pressure': market_pressure,
                 'warning_messages': setup.get('warning_messages', []),
-                'expected_profit': {level: position_size * abs(price - entry_price)
-                                    for level, price in take_profits.items()},
                 'risk_reward_ratio': {level: abs(price - entry_price) / risk_distance
-                                      for level, price in take_profits.items()}
+                                      for level, price in self._calculate_dynamic_take_profits(
+                                          entry_price, stop_loss, side, setup['setup_type'], volume_ratio).items()}
             }
 
             orders.append(order)
@@ -1010,80 +1046,3 @@ class LiveTradingExecutor:
 
         except Exception as e:
             logger.error(f"Error canceling orders: {str(e)}")
-
-
-# Example usage for backtesting
-def backtest_example():
-    from binance_data_fetcher import BinanceDataFetcher
-    from datetime import datetime, timedelta
-
-    # Initialize strategy
-    strategy = FuturesStrategy(
-        initial_capital=1000.0,
-        max_risk_per_trade=0.02,
-        take_profit_levels={'tp1': 0.5, 'tp2': 1.0, 'tp3': 2.0},
-        default_leverage=10
-    )
-
-    # Fetch historical data
-    data_fetcher = BinanceDataFetcher()
-    start_time = datetime.now() - timedelta(days=7)
-    data = data_fetcher.get_historical_klines(
-        symbol='BTCUSDT',
-        interval='15m',
-        start_time=start_time
-    )
-
-    # Analyze market
-    analysis = strategy.analyze_market(data)
-
-    # Generate orders with volume filtering
-    orders = strategy.generate_orders(
-        analysis,
-        min_setup_quality=60.0,
-        max_price_distance=1,
-        min_volume_ratio=2,  # Minimum OB/Avg volume ratio
-        respect_pressure=True,  # Respect market pressure
-        respect_warnings=True  # Respect warnings
-    )
-
-    # Add symbol to orders
-    for order in orders:
-        order['symbol'] = 'BTCUSDT'
-    print(orders)
-
-    # Run backtest
-    backtest_results = strategy.backtest(data, orders)
-
-    # Print performance metrics
-    print("\nBacktest Performance Metrics:")
-    for metric, value in backtest_results['performance'].items():
-        if isinstance(value, float):
-            print(f"{metric}: {value:.4f}")
-        else:
-            print(f"{metric}: {value}")
-
-    # Print trade summary
-    print("\nTrade Summary:")
-    print(f"Total trades: {len(backtest_results['trades'])}")
-
-    if backtest_results['trades']:
-        print("\nSample trades:")
-        for i, trade in enumerate(backtest_results['trades'][:5]):
-            print(f"\nTrade {i+1}:")
-            print(f"  Side: {trade['side']}")
-            print(f"  Type: {trade.get('setup_type', 'Unknown')}")
-            print(f"  Volume Ratio: {trade.get('volume_ratio', 0):.2f}x")
-            print(
-                f"  Market Pressure: {trade.get('market_pressure', 'Unknown')}")
-            print(f"  Entry: {trade['actual_entry_price']:.2f}")
-            print(f"  Exit: {trade['exit_price']:.2f}")
-            print(f"  Profit: {trade['profit']:.2f}")
-            print(f"  Exit reason: {trade['exit_reason']}")
-
-    return backtest_results
-
-
-if __name__ == "__main__":
-    # Run backtest example
-    results = backtest_example()

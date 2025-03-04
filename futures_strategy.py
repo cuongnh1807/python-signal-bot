@@ -143,7 +143,7 @@ class FuturesStrategy:
             risk_distance = abs(entry_price - stop_loss)
 
             # Fixed leverage at 20x
-            leverage = 20
+            leverage = self.default_leverage
             # Calculate base margin percentage based on setup quality and volume ratio
             # Higher quality setups get higher percentage of capital
             base_percent = 0.1  # Start with 10% of capital

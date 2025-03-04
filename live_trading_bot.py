@@ -11,13 +11,14 @@ import os
 import signal
 import sys
 import requests
+import asyncio
+from binance import AsyncClient, BinanceSocketManager
 
 # Import strategy components
 from binance_data_fetcher import BinanceDataFetcher
 from futures_strategy import FuturesStrategy
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
-from binance.websocket.binance_socket_manager import BinanceSocketManager
 
 # Configure logging
 logging.basicConfig(
@@ -348,53 +349,52 @@ class LiveTradingBot:
     def _process_kline_message(self, msg):
         """Process kline message from WebSocket"""
         try:
-            # Check if this is a kline message
-            if 'e' not in msg or msg['e'] != 'kline':
-                return
+            # Kiểm tra xem có phải là thông báo kline không
+            if 'k' in msg:
+                kline = msg['k']
 
-            kline = msg['k']
+                # Kiểm tra nến đã đóng chưa
+                is_candle_closed = kline['x']
 
-            # Only process closed candles
-            is_candle_closed = kline['x']
-            if not is_candle_closed:
-                # Update current price from the open candle
-                self.current_price = float(kline['c'])
-                return
+                if not is_candle_closed:
+                    # Update current price from the open candle
+                    self.current_price = float(kline['c'])
+                    return
 
-            # Extract candle data
-            timestamp = datetime.fromtimestamp(kline['t'] / 1000)
-            open_price = float(kline['o'])
-            high_price = float(kline['h'])
-            low_price = float(kline['l'])
-            close_price = float(kline['c'])
-            volume = float(kline['v'])
+                # Extract candle data
+                timestamp = datetime.fromtimestamp(kline['t'] / 1000)
+                open_price = float(kline['o'])
+                high_price = float(kline['h'])
+                low_price = float(kline['l'])
+                close_price = float(kline['c'])
+                volume = float(kline['v'])
 
-            # Create new candle data
-            new_candle = pd.DataFrame({
-                'open': [open_price],
-                'high': [high_price],
-                'low': [low_price],
-                'close': [close_price],
-                'volume': [volume]
-            }, index=[timestamp])
+                # Create new candle data
+                new_candle = pd.DataFrame({
+                    'open': [open_price],
+                    'high': [high_price],
+                    'low': [low_price],
+                    'close': [close_price],
+                    'volume': [volume]
+                }, index=[timestamp])
 
-            # Update historical data
-            self.historical_data = pd.concat(
-                [self.historical_data, new_candle])
+                # Update historical data
+                self.historical_data = pd.concat(
+                    [self.historical_data, new_candle])
 
-            # Keep only the most recent window_size + 10 candles
-            if len(self.historical_data) > self.window_size + 10:
-                self.historical_data = self.historical_data.iloc[-(
-                    self.window_size + 10):]
+                # Keep only the most recent window_size + 10 candles
+                if len(self.historical_data) > self.window_size + 10:
+                    self.historical_data = self.historical_data.iloc[-(
+                        self.window_size + 10):]
 
-            # Update current price
-            self.current_price = close_price
+                # Update current price
+                self.current_price = close_price
 
-            logger.info(
-                f"New candle closed: {timestamp}, Close: {close_price}")
+                logger.info(
+                    f"New candle closed: {timestamp}, Close: {close_price}")
 
-            # Run analysis on new candle
-            self._run_analysis()
+                # Run analysis on new candle
+                self._run_analysis()
 
         except Exception as e:
             error_msg = f"Error processing kline message: {str(e)}"
@@ -850,6 +850,33 @@ class LiveTradingBot:
                     del self.open_positions[position_id]
                     break
 
+    async def _start_socket(self):
+        """Khởi động WebSocket connection với asyncio"""
+        try:
+            # Khởi tạo AsyncClient
+            client = await AsyncClient.create(self.api_key, self.api_secret)
+
+            # Khởi tạo BinanceSocketManager
+            bsm = BinanceSocketManager(client)
+
+            # Bắt đầu kline socket
+            kline_socket = bsm.kline_socket(
+                symbol=self.symbol, interval=self.interval)
+
+            # Xử lý dữ liệu từ socket
+            async with kline_socket as stream:
+                while self.running:
+                    msg = await stream.recv()
+                    self._process_kline_message(msg)
+
+            # Đóng client khi kết thúc
+            await client.close_connection()
+
+        except Exception as e:
+            error_msg = f"Error in WebSocket connection: {str(e)}"
+            logger.error(error_msg)
+            self.telegram.notify_error(error_msg)
+
     def start(self):
         """Start the trading bot"""
         if self.running:
@@ -863,11 +890,25 @@ class LiveTradingBot:
             # Fetch initial data
             self._fetch_initial_data()
 
+            # Khởi động WebSocket trong một thread riêng
+            self.socket_thread = threading.Thread(
+                target=lambda: asyncio.run(self._start_socket()))
+            self.socket_thread.daemon = True
+            self.socket_thread.start()
+
+            logger.info(f"Started WebSocket connection for {self.symbol}")
+
             # Start order status checking thread
             self.status_thread = threading.Thread(
                 target=self._status_check_loop)
             self.status_thread.daemon = True
             self.status_thread.start()
+
+            # Start market analysis thread
+            self.analysis_thread = threading.Thread(
+                target=self._analysis_loop)
+            self.analysis_thread.daemon = True
+            self.analysis_thread.start()
 
             logger.info(
                 f"Trading bot started for {self.symbol} on {self.interval} timeframe")
@@ -877,6 +918,7 @@ class LiveTradingBot:
                 f"🚀 <b>Trading Bot Started</b>\n\n"
                 f"Symbol: <b>{self.symbol}</b>\n"
                 f"Timeframe: <b>{self.interval}</b>\n"
+                f"Current Price: <b>${self.current_price:.2f}</b>\n"
                 f"Mode: <b>{'Test' if self.test_mode else 'Live'}</b>"
             )
 
@@ -901,6 +943,53 @@ class LiveTradingBot:
                 self.telegram.notify_error(error_msg)
                 time.sleep(30)  # Wait longer on error
 
+    def _analysis_loop(self):
+        """Continuously run market analysis at interval boundaries"""
+        while self.running:
+            try:
+                # Calculate time until next candle closes
+                now = datetime.now()
+                seconds_in_interval = self._get_interval_seconds(self.interval)
+
+                # Calculate time until next candle
+                if self.interval.endswith('m'):
+                    # For minute-based intervals
+                    minutes = int(self.interval[:-1])
+                    current_minute = now.minute
+                    minutes_to_next = minutes - (current_minute % minutes)
+                    if minutes_to_next == 0:
+                        minutes_to_next = minutes
+                    seconds_to_next = minutes_to_next * 60 - now.second
+                elif self.interval.endswith('h'):
+                    # For hour-based intervals
+                    hours = int(self.interval[:-1])
+                    current_hour = now.hour
+                    hours_to_next = hours - (current_hour % hours)
+                    if hours_to_next == 0:
+                        hours_to_next = hours
+                    seconds_to_next = hours_to_next * \
+                        3600 - (now.minute * 60 + now.second)
+                else:
+                    # Default to 1 minute if interval format is unknown
+                    seconds_to_next = 60 - now.second
+
+                # Add a small buffer to ensure the candle has closed
+                seconds_to_next += 2
+
+                # Sleep until next candle
+                logger.info(f"Next analysis in {seconds_to_next} seconds")
+                time.sleep(seconds_to_next)
+
+                # Run analysis if we're still running
+                if self.running:
+                    self._run_analysis()
+
+            except Exception as e:
+                error_msg = f"Error in analysis loop: {str(e)}"
+                logger.error(error_msg)
+                self.telegram.notify_error(error_msg)
+                time.sleep(60)  # Wait a minute before trying again
+
     def stop(self):
         """Stop the trading bot"""
         if not self.running:
@@ -908,6 +997,9 @@ class LiveTradingBot:
 
         logger.info("Stopping trading bot...")
         self.running = False
+
+        # WebSocket sẽ tự đóng khi self.running = False
+
         # Send notification
         self.telegram.send_message("🛑 <b>Trading Bot Stopped</b>")
 
@@ -947,6 +1039,7 @@ if __name__ == "__main__":
     # Load configuration from environment variables first, then fallback to config file
     api_key = os.environ.get('BINANCE_API_KEY')
     api_secret = os.environ.get('BINANCE_API_SECRET')
+    print(api_key, api_secret)
     symbol = os.environ.get('TRADING_SYMBOL', 'BTCUSDT')
     interval = os.environ.get('TRADING_INTERVAL', '15m')
     initial_capital = float(os.environ.get('INITIAL_CAPITAL', '1000.0'))

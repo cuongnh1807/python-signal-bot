@@ -958,6 +958,12 @@ class LiveTradingBot:
                 leverage=order['leverage']
             )
 
+            # Set margin type to ISOLATED
+            self.client.futures_change_margin_type(
+                symbol=self.symbol,
+                marginType='ISOLATED'
+            )
+
             # Calculate quantity
             quantity = order['position_size'] / order['entry_price']
             quantity = self._round_step_size(quantity)

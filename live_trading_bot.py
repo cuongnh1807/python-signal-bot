@@ -20,6 +20,8 @@ from futures_strategy import FuturesStrategy
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
+from strategy import calculate_rsi
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -34,22 +36,26 @@ logger = logging.getLogger(__name__)
 
 class TelegramNotifier:
     """
-    Handles sending notifications to Telegram.
+    Handles sending notifications to Telegram with support for topics.
     """
 
-    def __init__(self, bot_token: str, chat_id: str, enabled: bool = True):
+    def __init__(self, bot_token: str, chat_id: str, enabled: bool = True, orders_topic_id: str = None, signals_topic_id: str = None):
         """
-        Initialize the Telegram notifier.
+        Initialize the Telegram notifier with topic support.
 
         Parameters:
         -----------
         bot_token: Telegram bot token
         chat_id: Telegram chat ID to send messages to
         enabled: Whether notifications are enabled
+        orders_topic_id: Topic ID for orders notifications
+        signals_topic_id: Topic ID for signals notifications
         """
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.enabled = enabled
+        self.orders_topic_id = orders_topic_id
+        self.signals_topic_id = signals_topic_id
         self.base_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
         if enabled:
@@ -58,8 +64,8 @@ class TelegramNotifier:
         else:
             logger.info("Telegram notifications disabled")
 
-    def send_message(self, message: str, parse_mode: str = "HTML"):
-        """Send a message to the Telegram chat"""
+    def send_message(self, message: str, parse_mode: str = "HTML", topic_id: str = None):
+        """Send a message to the Telegram chat with optional topic"""
         if not self.enabled:
             return
 
@@ -70,6 +76,10 @@ class TelegramNotifier:
                 "parse_mode": parse_mode
             }
 
+            # Add message_thread_id for topic if provided
+            if topic_id:
+                data["message_thread_id"] = topic_id
+
             response = requests.post(self.base_url, data=data)
 
             if response.status_code != 200:
@@ -79,18 +89,58 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"Error sending Telegram message: {str(e)}")
 
+    def notify_signal(self, signal_data: Dict):
+        """Send notification about a new trading signal to signals topic"""
+        if not self.enabled:
+            return
+
+        symbol = signal_data['symbol']
+        signal_type = signal_data['signal_type']
+        price = signal_data['price']
+        ema_fast = signal_data.get('ema_fast', 0)
+        ema_slow = signal_data.get('ema_slow', 0)
+        volume_ratio = signal_data.get('volume_ratio', 0)
+        rsi = signal_data.get('rsi', 0)
+
+        # Determine emoji based on signal type
+        if signal_type == "BUY":
+            emoji = "🟢"
+        elif signal_type == "SELL":
+            emoji = "🔴"
+        else:
+            emoji = "⚠️"
+
+        message = (
+            f"{emoji} <b>{signal_type} Signal Detected</b>\n\n"
+            f"Symbol: <b>{symbol}</b>\n"
+            f"Price: <b>${price:.2f}</b>\n"
+            f"EMA Fast: <b>{ema_fast:.2f}</b>\n"
+            f"EMA Slow: <b>{ema_slow:.2f}</b>\n"
+            f"RSI: <b>{rsi:.2f}</b>\n"
+            f"Volume Ratio: <b>{volume_ratio:.2f}x</b>"
+        )
+
+        if 'support' in signal_data:
+            message += f"\nSupport: <b>${signal_data['support']:.2f}</b>"
+
+        if 'resistance' in signal_data:
+            message += f"\nResistance: <b>${signal_data['resistance']:.2f}</b>"
+
+        # Send to signals topic if configured, otherwise to main chat
+        self.send_message(message, topic_id=self.signals_topic_id)
+
     def notify_order_created(self, order: Dict):
-        """Send notification about a new order"""
+        """Send notification about a new order to orders topic"""
         if not self.enabled:
             return
 
         side = order['side']
         symbol = order['symbol']
-        entry_type = order['entry_type']
+        entry_type = order.get('entry_type', '')
         entry_price = order['entry_price']
         stop_loss = order['stop_loss']
-        setup_quality = order['setup_quality']
-        setup_type = order['setup_type']
+        setup_quality = order.get('setup_quality', 0)
+        setup_type = order.get('setup_type', '')
         volume_ratio = order.get('volume_ratio', 'N/A')
         position_size = order.get('position_size', 0)
         leverage = order.get('leverage', 20)
@@ -98,7 +148,8 @@ class TelegramNotifier:
 
         # Calculate risk-reward for TP2
         risk = abs(entry_price - stop_loss)
-        tp2 = order['take_profit'].get('tp2', 0)
+        tp2 = order['take_profit'].get('tp2', 0) if isinstance(
+            order.get('take_profit', {}), dict) else 0
         rr = abs(tp2 - entry_price) / risk if risk > 0 else 0
 
         message = (
@@ -114,7 +165,8 @@ class TelegramNotifier:
             f"Margin: <b>${margin:.2f}</b>"
         )
 
-        self.send_message(message)
+        # Send to orders topic if configured, otherwise to main chat
+        self.send_message(message, topic_id=self.orders_topic_id)
 
     def notify_order_filled(self, order: Dict):
         """Send notification about a filled order"""
@@ -220,7 +272,11 @@ class LiveTradingBot:
                  min_setup_quality: float = 70.0,
                  min_volume_ratio: float = 3.0,
                  test_mode: bool = True,
-                 telegram_config: Optional[Dict] = None):
+                 telegram: TelegramNotifier = None,
+                 # EMA Crossover params
+                 fast_ema: int = 8,
+                 slow_ema: int = 21,
+                 volume_threshold: float = 2.0):
         """
         Initialize the live trading bot.
 
@@ -238,6 +294,9 @@ class LiveTradingBot:
         min_volume_ratio: Minimum volume ratio to consider
         test_mode: If True, run in test mode (no real orders)
         telegram_config: Configuration for Telegram notifications
+        fast_ema: Fast EMA period for crossover strategy
+        slow_ema: Slow EMA period for crossover strategy
+        volume_threshold: Volume threshold for crossover strategy
         """
         self.api_key = api_key
         self.api_secret = api_secret
@@ -250,6 +309,18 @@ class LiveTradingBot:
         self.min_setup_quality = min_setup_quality
         self.min_volume_ratio = min_volume_ratio
         self.test_mode = test_mode
+
+        # EMA Crossover parameters
+        self.fast_ema = fast_ema
+        self.slow_ema = slow_ema
+        self.volume_threshold = volume_threshold
+        self.last_signal = None
+        self.last_analysis_time = None
+        self.in_position = False
+
+        # Support & resistance levels
+        self.support_levels = []
+        self.resistance_levels = []
 
         # Initialize Binance client
         self.client = Client(api_key, api_secret)
@@ -274,18 +345,10 @@ class LiveTradingBot:
 
         # Initialize control flags
         self.running = False
-        self.last_analysis_time = None
         self.analysis_interval_seconds = self._get_interval_seconds(interval)
 
         # Initialize Telegram notifier
-        if telegram_config and telegram_config.get('enabled', False):
-            self.telegram = TelegramNotifier(
-                bot_token=telegram_config.get('bot_token', ''),
-                chat_id=telegram_config.get('chat_id', ''),
-                enabled=True
-            )
-        else:
-            self.telegram = TelegramNotifier('', '', enabled=False)
+        self.telegram = telegram
 
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -331,7 +394,7 @@ class LiveTradingBot:
                 symbol=self.symbol,
                 interval=self.interval,
                 start_time=start_time,
-                limit=self.window_size + 10
+                limit=self.window_size
             )
 
             logger.info(f"Fetched {len(self.historical_data)} initial candles")
@@ -352,7 +415,6 @@ class LiveTradingBot:
             # Kiểm tra xem có phải là thông báo kline không
             if 'k' in msg:
                 kline = msg['k']
-
                 # Kiểm tra nến đã đóng chưa
                 is_candle_closed = kline['x']
 
@@ -393,13 +455,410 @@ class LiveTradingBot:
                 logger.info(
                     f"New candle closed: {timestamp}, Close: {close_price}")
 
-                # Run analysis on new candle
-                self._run_analysis()
+                # Calculate indicators for EMA crossover strategy
+                self.historical_data = self._calculate_indicators(
+                    self.historical_data)
+
+                # Run both analyses on new candle
+                self._run_analysis()  # Futures strategy analysis
+                self._generate_signals()  # EMA crossover analysis
 
         except Exception as e:
             error_msg = f"Error processing kline message: {str(e)}"
             logger.error(error_msg)
             self.telegram.notify_error(error_msg)
+
+    def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate indicators for EMA crossover strategy and market analysis"""
+        try:
+            df = df.copy()
+
+            # Calculate EMA values for crossover
+            df['ema_fast'] = df['close'].ewm(
+                span=self.fast_ema, adjust=False).mean()
+            df['ema_slow'] = df['close'].ewm(
+                span=self.slow_ema, adjust=False).mean()
+
+            # Calculate basic MA for trend determination
+            df['ma'] = df['close'].rolling(window=50).mean()
+
+            # Calculate RSI
+            df['rsi'] = calculate_rsi(df)
+
+            delta = df['close'].diff()
+            gain = delta.where(delta > 0, 0).fillna(0)
+            loss = -delta.where(delta < 0, 0).fillna(0)
+            avg_gain = gain.rolling(window=14).mean()
+            avg_loss = loss.rolling(window=14).mean()
+            # Avoid division by zero
+            rs = avg_gain / avg_loss.replace(0, 0.001)
+            df['rsi'] = 100 - (100 / (1 + rs))
+
+            # Calculate ATR for volatility
+            high_low = df['high'] - df['low']
+            high_close = (df['high'] - df['close'].shift()).abs()
+            low_close = (df['low'] - df['close'].shift()).abs()
+            ranges = pd.concat([high_low, high_close, low_close], axis=1)
+            true_range = ranges.max(axis=1)
+            df['atr'] = true_range.rolling(window=14).mean()
+
+            # Calculate volume ratio
+            df['avg_volume'] = df['volume'].rolling(window=20).mean()
+            df['volume_ratio'] = df['volume'] / df['avg_volume']
+
+            # Calculate crossover signals
+            df['ema_diff'] = df['ema_fast'] - df['ema_slow']
+            df['ema_diff_prev'] = df['ema_diff'].shift(1)
+
+            # Create crossover column (1 for bullish, -1 for bearish, 0 for no crossover)
+            df['crossover'] = 0
+            df.loc[(df['ema_diff'] > 0) & (df['ema_diff_prev'] <= 0),
+                   'crossover'] = 1  # Bullish crossover
+            df.loc[(df['ema_diff'] < 0) & (df['ema_diff_prev'] >= 0),
+                   'crossover'] = -1  # Bearish crossover
+
+            # Calculate support/resistance levels
+            self._identify_support_resistance(df)
+
+            return df
+
+        except Exception as e:
+            error_msg = f"Error calculating indicators: {str(e)}"
+            logger.error(error_msg)
+            if hasattr(self, 'telegram'):
+                self.telegram.notify_error(error_msg)
+            return df
+
+    def _identify_support_resistance(self, df: pd.DataFrame, num_levels: int = 5, window: int = 10):
+        """Identify important support and resistance levels"""
+        try:
+            # Create empty lists for support and resistance
+            support_levels = []
+            resistance_levels = []
+
+            # Find local minima (support) and maxima (resistance)
+            for i in range(window, len(df) - window):
+                # Check if this is a local low (support)
+                if all(df.iloc[i-window:i]['low'] >= df.iloc[i]['low']) and all(df.iloc[i+1:i+window+1]['low'] >= df.iloc[i]['low']):
+                    support_levels.append(df.iloc[i]['low'])
+
+                # Check if this is a local high (resistance)
+                if all(df.iloc[i-window:i]['high'] <= df.iloc[i]['high']) and all(df.iloc[i+1:i+window+1]['high'] <= df.iloc[i]['high']):
+                    resistance_levels.append(df.iloc[i]['high'])
+
+            # Remove duplicates and sort
+            support_levels = sorted(
+                list(set([round(level, 2) for level in support_levels])))
+            resistance_levels = sorted(
+                list(set([round(level, 2) for level in resistance_levels])))
+
+            # Keep only the strongest levels (most recent and significant)
+            current_price = df.iloc[-1]['close']
+
+            # Filter levels close to current price
+            support_levels = [
+                level for level in support_levels if level < current_price]
+            resistance_levels = [
+                level for level in resistance_levels if level > current_price]
+
+            # Sort by distance to current price and take top levels
+            support_levels = sorted(
+                support_levels, key=lambda x: current_price - x)[:num_levels]
+            resistance_levels = sorted(
+                resistance_levels, key=lambda x: x - current_price)[:num_levels]
+
+            # Store the levels
+            self.support_levels = support_levels
+            self.resistance_levels = resistance_levels
+
+        except Exception as e:
+            logger.error(f"Error identifying support/resistance: {str(e)}")
+
+    def _is_near_support(self, price: float) -> bool:
+        """Check if price is near a support level"""
+        if not self.support_levels:
+            return False
+
+        threshold = price * 0.01  # 1% of current price
+        return any(abs(price - level) < threshold for level in self.support_levels)
+
+    def _is_near_resistance(self, price: float) -> bool:
+        """Check if price is near a resistance level"""
+        if not self.resistance_levels:
+            return False
+
+        threshold = price * 0.01  # 1% of current price
+        return any(abs(price - level) < threshold for level in self.resistance_levels)
+
+    def _get_closest_support(self, price: float) -> Optional[float]:
+        """Get the closest support level below current price"""
+        if not self.support_levels:
+            return None
+
+        supports_below = [
+            level for level in self.support_levels if level < price]
+        if supports_below:
+            return max(supports_below)  # Highest support below price
+        return None
+
+    def _get_closest_resistance(self, price: float) -> Optional[float]:
+        """Get the closest resistance level above current price"""
+        if not self.resistance_levels:
+            return None
+
+        resistances_above = [
+            level for level in self.resistance_levels if level > price]
+        if resistances_above:
+            return min(resistances_above)  # Lowest resistance above price
+        return None
+
+    def _generate_signals(self):
+        """Generate trading signals based on EMA crossover and other indicators"""
+        try:
+            # Check if we have enough data
+            if len(self.historical_data) < 50:  # Need at least 50 candles for reliable indicators
+                logger.warning("Not enough data for signal generation")
+                return
+
+            # Get the latest data point
+            latest = self.historical_data.iloc[-1]
+
+            # Check if we have all necessary indicators
+            if any(pd.isna([latest['ema_fast'], latest['ema_slow'], latest['ma'], latest['volume_ratio']])):
+                logger.warning(
+                    "Missing indicator data, skipping signal generation")
+                return
+
+            # Extract current values
+            current_price = latest['close']
+            ema_fast = latest['ema_fast']
+            ema_slow = latest['ema_slow']
+            ma = latest['ma']
+            volume_ratio = latest['volume_ratio']
+            crossover = latest['crossover']
+            rsi = latest['rsi']
+
+            # Signal variables
+            signal = None
+            signal_strength = 0
+
+            # Check for buy signal
+            if crossover == 1:  # Bullish crossover
+                # Check volume confirmation
+                if volume_ratio >= self.volume_threshold:
+                    # Check if price is above MA (uptrend)
+                    if current_price > ma:
+                        # Check proximity to support
+                        near_support = self._is_near_support(current_price)
+
+                        if near_support:
+                            signal = "BUY"
+                            # Strong signal (all conditions met)
+                            signal_strength = 3
+                        else:
+                            signal = "BUY"
+                            # Medium signal (not near support)
+                            signal_strength = 2
+                    else:
+                        signal = "BUY"
+                        signal_strength = 1  # Weak signal (not in uptrend)
+
+            # Check for sell signal
+            elif crossover == -1:  # Bearish crossover
+                # Check volume confirmation
+                if volume_ratio >= self.volume_threshold:
+                    # Check if price is below MA (downtrend)
+                    if current_price < ma:
+                        # Check proximity to resistance
+                        near_resistance = self._is_near_resistance(
+                            current_price)
+
+                        if near_resistance:
+                            signal = "SELL"
+                            # Strong signal (all conditions met)
+                            signal_strength = 3
+                        else:
+                            signal = "SELL"
+                            # Medium signal (not near resistance)
+                            signal_strength = 2
+                    else:
+                        signal = "SELL"
+                        signal_strength = 1  # Weak signal (not in downtrend)
+
+            # Process signal if we have one
+            if signal and signal_strength >= 2:  # Only act on medium or strong signals
+                # Only notify if it's a new signal or we haven't seen one in a while
+                if self.last_signal != signal or (datetime.now() - self.last_analysis_time > timedelta(hours=2)):
+                    # Get closest support/resistance level for stop loss/take profit
+                    closest_support = self._get_closest_support(current_price)
+                    closest_resistance = self._get_closest_resistance(
+                        current_price)
+
+                    # Create signal data
+                    signal_data = {
+                        'symbol': self.symbol,
+                        'signal_type': signal,
+                        'price': current_price,
+                        'ema_fast': ema_fast,
+                        'ema_slow': ema_slow,
+                        'volume_ratio': volume_ratio,
+                        'signal_strength': signal_strength,
+                        'timestamp': datetime.now(),
+                        'rsi': rsi
+                    }
+
+                    # Add support/resistance if available
+                    if closest_support:
+                        signal_data['support'] = closest_support
+
+                    if closest_resistance:
+                        signal_data['resistance'] = closest_resistance
+
+                    # Update last signal
+                    self.last_signal = signal
+
+                    # Send notification
+                    logger.info(
+                        f"Generated {signal} signal with strength {signal_strength}")
+                    self.telegram.notify_signal(signal_data)
+
+                    # Only place order based on signals if not in test mode and not already in position
+                    if not self.test_mode and not self.in_position:
+                        self._place_signal_order(signal_data)
+
+        except Exception as e:
+            error_msg = f"Error generating signals: {str(e)}"
+            logger.error(error_msg)
+            self.telegram.notify_error(error_msg)
+
+    def _place_signal_order(self, signal_data: Dict):
+        """Place an order based on EMA crossover signal"""
+        try:
+            # Extract data
+            signal_type = signal_data['signal_type']
+            price = signal_data['price']
+
+            # Determine side
+            side = "LONG" if signal_type == "BUY" else "SHORT"
+
+            # Get latest data point
+            latest = self.historical_data.iloc[-1]
+
+            # Get ATR for volatility-based stop loss
+            atr = latest['atr']
+
+            # Calculate volatility as percentage
+            volatility = (atr / price) * 100
+
+            # Determine ATR multiplier based on volatility
+            if volatility < 1:
+                atr_multiplier = 3.0  # Lower volatility needs wider stops
+            elif volatility < 2:
+                atr_multiplier = 2.5
+            elif volatility < 4:
+                atr_multiplier = 2.0
+            else:
+                atr_multiplier = 1.5  # High volatility needs tighter stops
+
+            # Calculate stop loss and take profit based on side
+            if side == "LONG":
+                # For longs: price - (ATR * multiplier)
+                # Adjust based on nearest support level
+                base_stop = price - (atr * atr_multiplier)
+
+                # Check if there's a support level between price and base_stop
+                close_supports = [
+                    level for level in self.support_levels if level < price and level > base_stop]
+
+                if close_supports:
+                    # Use the highest support level that's below price but above base_stop
+                    # Small buffer below support
+                    stop_loss = max(close_supports) - (atr * 0.5)
+                else:
+                    stop_loss = base_stop
+
+                # Take profit based on resistance or risk:reward ratio
+                resistance = next(
+                    (level for level in self.resistance_levels if level > price), None)
+                risk = price - stop_loss
+
+                if resistance:
+                    # Target the nearest resistance
+                    take_profit = resistance
+                else:
+                    # Default to 2:1 risk:reward if no resistance found
+                    take_profit = price + (risk * 2)
+
+            else:  # SELL/SHORT
+                # For shorts: price + (ATR * multiplier)
+                # Adjust based on nearest resistance level
+                base_stop = price + (atr * atr_multiplier)
+
+                # Check if there's a resistance level between price and base_stop
+                close_resistances = [
+                    level for level in self.resistance_levels if level > price and level < base_stop]
+
+                if close_resistances:
+                    # Use the lowest resistance level that's above price but below base_stop
+                    # Small buffer above resistance
+                    stop_loss = min(close_resistances) + (atr * 0.5)
+                else:
+                    stop_loss = base_stop
+
+                # Take profit based on support or risk:reward ratio
+                support = next(
+                    (level for level in self.support_levels if level < price), None)
+                risk = stop_loss - price
+
+                if support:
+                    # Target the nearest support
+                    take_profit = support
+                else:
+                    # Default to 2:1 risk:reward if no support found
+                    take_profit = price - (risk * 2)
+
+            # Calculate risk-reward ratio
+            risk_reward = abs(take_profit - price) / abs(price - stop_loss)
+
+            # Only take trades with acceptable risk:reward
+            if risk_reward < 1.5:
+                logger.info(
+                    f"Skipping {side} signal - insufficient risk:reward ratio ({risk_reward:.2f})")
+                return None
+
+            # Calculate position size based on risk
+            risk_amount = self.strategy.capital * self.max_risk_per_trade
+            price_risk = abs(price - stop_loss)
+            position_size = (risk_amount / price_risk) * self.leverage
+
+            # Create order object
+            order = {
+                'symbol': self.symbol,
+                'side': side,
+                'entry_type': 'MARKET',
+                'entry_price': price,
+                'stop_loss': stop_loss,
+                'take_profit': {'tp1': take_profit},
+                'risk_reward': risk_reward,
+                'position_size': position_size,
+                'leverage': self.leverage,
+                'setup_type': f"EMA_CROSSOVER_{side}",
+                # Convert to percentage
+                'setup_quality': signal_data['signal_strength'] * 25,
+                'volume_ratio': signal_data['volume_ratio'],
+                'margin_amount': position_size / self.leverage
+            }
+
+            # Process the order
+            self._process_new_orders([order])
+
+            return order
+
+        except Exception as e:
+            error_msg = f"Error placing signal order: {str(e)}"
+            logger.error(error_msg)
+            self.telegram.notify_error(error_msg)
+            return None
 
     def _run_analysis(self):
         """Run strategy analysis and generate orders"""
@@ -1138,6 +1597,10 @@ if __name__ == "__main__":
         'TELEGRAM_ENABLED', 'false').lower() == 'true'
     telegram_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
     telegram_chat_id = os.environ.get('TELEGRAM_CHAT_ID', '')
+    telegram_orders_topic_id = os.environ.get(
+        'TELEGRAM_ORDERS_TOPIC_ID', '6216')
+    telegram_signals_topic_id = os.environ.get(
+        'TELEGRAM_SIGNALS_TOPIC_ID', '6215')
 
     # Validate required configuration
     # if not api_key or not api_secret:
@@ -1157,24 +1620,15 @@ if __name__ == "__main__":
         window_size=window_size,
         min_setup_quality=min_setup_quality,
         min_volume_ratio=min_volume_ratio,
-        test_mode=test_mode
-    )
-
-    # Initialize Telegram notifier
-    if telegram_enabled and telegram_token and telegram_chat_id:
-        bot.telegram = TelegramNotifier(
+        test_mode=test_mode,
+        telegram=TelegramNotifier(
             bot_token=telegram_token,
             chat_id=telegram_chat_id,
-            enabled=True
+            enabled=telegram_enabled,
+            orders_topic_id=telegram_orders_topic_id,
+            signals_topic_id=telegram_signals_topic_id
         )
-    else:
-        # Create a dummy notifier that does nothing
-        bot.telegram = TelegramNotifier(
-            bot_token="",
-            chat_id="",
-            enabled=False
-        )
-
+    )
     # Start the bot
     bot.start()
 

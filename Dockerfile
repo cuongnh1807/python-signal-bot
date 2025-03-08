@@ -17,4 +17,4 @@ EXPOSE 8000
 
 
 # Command to run the bot
-CMD ["python", "cron_trading.py"]
+CMD ["python", "live_trading_bot.py"]

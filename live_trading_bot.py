@@ -15,7 +15,6 @@ import asyncio
 from binance import AsyncClient, BinanceSocketManager
 
 # Import strategy components
-from binance_data_fetcher import BinanceDataFetcher
 from futures_strategy import FuturesStrategy
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
@@ -325,9 +324,6 @@ class LiveTradingBot:
         # Initialize Binance client
         self.client = Client(api_key, api_secret)
 
-        # Initialize data fetcher
-        self.data_fetcher = BinanceDataFetcher()
-
         # Initialize strategy
         self.strategy = FuturesStrategy(
             initial_capital=initial_capital,
@@ -378,36 +374,6 @@ class LiveTradingBot:
             return value * 7 * 24 * 60 * 60
         else:
             return 3600  # Default to 1 hour
-
-    def _fetch_initial_data(self):
-        """Fetch initial historical data"""
-        logger.info(
-            f"Fetching initial historical data for {self.symbol} {self.interval}")
-
-        try:
-            # Calculate start time based on window size
-            start_time = datetime.now() - timedelta(
-                seconds=self.analysis_interval_seconds * (self.window_size + 10))
-
-            # Fetch data
-            self.historical_data = self.data_fetcher.get_historical_klines(
-                symbol=self.symbol,
-                interval=self.interval,
-                start_time=start_time,
-                limit=self.window_size
-            )
-
-            logger.info(f"Fetched {len(self.historical_data)} initial candles")
-
-            # Set current price
-            if not self.historical_data.empty:
-                self.current_price = self.historical_data['close'].iloc[-1]
-
-        except Exception as e:
-            error_msg = f"Error fetching initial data: {str(e)}"
-            logger.error(error_msg)
-            self.telegram.notify_error(error_msg)
-            raise
 
     def _process_kline_message(self, msg):
         """Process kline message from WebSocket"""
@@ -1434,9 +1400,6 @@ class LiveTradingBot:
         try:
             logger.info("Starting trading bot...")
             self.running = True
-
-            # Fetch initial data
-            self._fetch_initial_data()
 
             # Khởi động WebSocket trong một thread riêng
             self.socket_thread = threading.Thread(

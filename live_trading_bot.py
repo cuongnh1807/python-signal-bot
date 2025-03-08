@@ -425,12 +425,25 @@ class LiveTradingBot:
                 respect_warnings=True
             )
 
-            # Process new orders
+            # Track orders from the current analysis
+            new_order_signatures = set()
             if new_orders:
+                # Create signatures for new orders for later comparison
+                for order in new_orders:
+                    # Create a unique signature based on key order properties
+                    signature = f"{order['side']}_{order['setup_type']}_{order['entry_price']:.2f}_{order['stop_loss']:.2f}"
+                    new_order_signatures.add(signature)
+
                 logger.info(f"Generated {len(new_orders)} new orders")
                 self._process_new_orders(new_orders)
             else:
                 logger.info("No new orders generated")
+
+            # Check for obsolete orders that are no longer recommended
+            if not self.test_mode:
+                self._cancel_obsolete_orders(new_order_signatures)
+            else:
+                self._simulate_cancel_obsolete_orders(new_order_signatures)
 
             # Update last analysis time
             self.last_analysis_time = datetime.now()
@@ -849,6 +862,76 @@ class LiveTradingBot:
                     # Remove from open positions
                     del self.open_positions[position_id]
                     break
+
+    def _cancel_obsolete_orders(self, new_order_signatures: set):
+        """Cancel orders that are no longer recommended by the latest analysis"""
+        try:
+            # Check each active order
+            for order_id in list(self.active_orders.keys()):
+                order = self.active_orders[order_id]
+
+                # Skip orders that are not PENDING (i.e., already FILLED or processing)
+                if order['status'] != 'PENDING':
+                    continue
+
+                # Create signature for this order
+                order_signature = f"{order['side']}_{order['setup_type']}_{order['entry_price']:.2f}_{order['stop_loss']:.2f}"
+
+                # If this order signature is not in the new recommendations, cancel it
+                if order_signature not in new_order_signatures:
+                    logger.info(
+                        f"Canceling obsolete order {order_id} that is no longer recommended")
+
+                    # Cancel the order on the exchange
+                    self.client.futures_cancel_order(
+                        symbol=self.symbol,
+                        orderId=order_id
+                    )
+
+                    # Remove from our active orders
+                    del self.active_orders[order_id]
+
+                    # Send notification
+                    self.telegram.send_message(
+                        f"🚫 <b>Order Canceled</b>\n\n"
+                        f"Symbol: <b>{self.symbol}</b>\n"
+                        f"Side: <b>{order['side']}</b>\n"
+                        f"Setup: <b>{order['setup_type']}</b>\n"
+                        f"Entry: <b>${order['entry_price']:.2f}</b>\n"
+                        f"Reason: <b>No longer recommended by strategy</b>"
+                    )
+
+        except Exception as e:
+            error_msg = f"Error canceling obsolete orders: {str(e)}"
+            logger.error(error_msg)
+            self.telegram.notify_error(error_msg)
+
+    def _simulate_cancel_obsolete_orders(self, new_order_signatures: set):
+        """Simulate canceling orders in test mode"""
+        # Check each active order
+        for order_id in list(self.active_orders.keys()):
+            order = self.active_orders[order_id]
+
+            # Create signature for this order
+            order_signature = f"{order['side']}_{order['setup_type']}_{order['entry_price']:.2f}_{order['stop_loss']:.2f}"
+
+            # If this order signature is not in the new recommendations, cancel it
+            if order_signature not in new_order_signatures:
+                logger.info(
+                    f"TEST MODE: Canceling obsolete order {order_id} that is no longer recommended")
+
+                # Remove from our active orders
+                del self.active_orders[order_id]
+
+                # Send notification
+                self.telegram.send_message(
+                    f"🚫 <b>Order Canceled (Test Mode)</b>\n\n"
+                    f"Symbol: <b>{self.symbol}</b>\n"
+                    f"Side: <b>{order['side']}</b>\n"
+                    f"Setup: <b>{order['setup_type']}</b>\n"
+                    f"Entry: <b>${order['entry_price']:.2f}</b>\n"
+                    f"Reason: <b>No longer recommended by strategy</b>"
+                )
 
     async def _start_socket(self):
         """Khởi động WebSocket connection với asyncio"""

@@ -146,3 +146,107 @@ ax.legend(['Close'])
 plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
+
+# --- Step 3: Information about the order blocks ---
+print(f"Bullish Order Blocks: {len(unmitigated_bull_order_blocks)}")
+print(f"Bearish Order Blocks: {len(unmitigated_bear_order_blocks)}")
+for ob in unmitigated_bull_order_blocks:
+    print(ob)
+
+# --- Step 4: Calculate Order Block Metrics ---
+order_block_metrics = []
+
+# Tính toán Order Block Volume và Percentage theo cách của smc.py
+lookback = 20  # Khoảng thời gian để so sánh khối lượng
+volume_ma = data['volume'].rolling(lookback).mean()
+
+# Tạo các cột mới cho Order Block
+data['ob'] = np.nan  # 1 cho bullish OB, -1 cho bearish OB
+data['top'] = np.nan  # Đỉnh của order block
+data['bottom'] = np.nan  # Đáy của order block
+data['obVolume'] = np.nan  # Khối lượng của order block
+data['percentage'] = np.nan  # Phần trăm sức mạnh của order block
+data['mitigated_index'] = np.nan  # Chỉ số khi order block bị vô hiệu hóa
+
+# Xử lý bullish order blocks
+for i, ob in enumerate(unmitigated_bull_order_blocks):
+    idx = data.index.get_loc(ob['left'])
+
+    # Đánh dấu là bullish order block
+    data.loc[ob['left'], 'ob'] = 1
+    data.loc[ob['left'], 'top'] = ob['top']
+    data.loc[ob['left'], 'bottom'] = ob['btm']
+
+    # Tính toán khối lượng OB (volume + 2 khối lượng gần nhất)
+    if idx + 2 < len(data):
+        # Tính tổng khối lượng của 3 cây nến
+        obVolume = (
+            data['volume'].iloc[idx] +
+            data['volume'].iloc[idx + 1] +
+            data['volume'].iloc[idx + 2]
+        )
+        data.loc[ob['left'], 'obVolume'] = obVolume
+
+        # Tính toán lowVolume và highVolume
+        lowVolume = data['volume'].iloc[idx]
+        highVolume = data['volume'].iloc[idx + 1] + \
+            data['volume'].iloc[idx + 2]
+
+        # Tính toán percentage theo cách của smc.py
+        if idx >= lookback and volume_ma.iloc[idx] > 0:
+            # Cách 1: Dựa trên khối lượng trung bình
+            percentage = min(int((obVolume / volume_ma.iloc[idx]) * 100), 100)
+
+            # Cách 2: Dựa trên tỷ lệ giữa lowVolume và highVolume
+            # percentage_alt = (min(highVolume, lowVolume) / max(highVolume, lowVolume) * 100
+            #                  if max(highVolume, lowVolume) != 0 else 100)
+
+            data.loc[ob['left'], 'percentage'] = percentage
+
+# Xử lý bearish order blocks
+for i, ob in enumerate(unmitigated_bear_order_blocks):
+    idx = data.index.get_loc(ob['left'])
+
+    # Đánh dấu là bearish order block
+    data.loc[ob['left'], 'ob'] = -1
+    data.loc[ob['left'], 'top'] = ob['top']
+    data.loc[ob['left'], 'bottom'] = ob['btm']
+
+    # Tính toán khối lượng OB (volume + 2 khối lượng gần nhất)
+    if idx + 2 < len(data):
+        # Tính tổng khối lượng của 3 cây nến
+        obVolume = (
+            data['volume'].iloc[idx] +
+            data['volume'].iloc[idx + 1] +
+            data['volume'].iloc[idx + 2]
+        )
+        data.loc[ob['left'], 'obVolume'] = obVolume
+
+        # Tính toán lowVolume và highVolume
+        lowVolume = data['volume'].iloc[idx + 1] + data['volume'].iloc[idx + 2]
+        highVolume = data['volume'].iloc[idx]
+
+        # Tính toán percentage theo cách của smc.py
+        if idx >= lookback and volume_ma.iloc[idx] > 0:
+            # Cách 1: Dựa trên khối lượng trung bình
+            percentage = min(int((obVolume / volume_ma.iloc[idx]) * 100), 100)
+
+            # Cách 2: Dựa trên tỷ lệ giữa lowVolume và highVolume
+            # percentage_alt = (min(highVolume, lowVolume) / max(highVolume, lowVolume) * 100
+            #                  if max(highVolume, lowVolume) != 0 else 100)
+
+            data.loc[ob['left'], 'percentage'] = percentage
+
+# In thông tin về Order Blocks
+print("\n--- Order Block Metrics ---")
+ob_data = data.dropna(subset=['ob'])
+if not ob_data.empty:
+    for idx, row in ob_data.iterrows():
+        ob_type = "Bullish" if row['ob'] == 1 else "Bearish"
+        print(f"{ob_type} Order Block at {idx}:")
+        print(f"  Top: {row['top']:.2f}, Bottom: {row['bottom']:.2f}")
+        print(
+            f"  Volume: {row['obVolume']:.2f}, Strength: {row['percentage']:.0f}%")
+        print("---")
+else:
+    print("No active order blocks detected")

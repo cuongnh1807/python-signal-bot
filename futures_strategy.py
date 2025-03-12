@@ -65,10 +65,9 @@ class FuturesStrategy:
         Dict containing trading setups and analysis
         """
         # Calculate swing highs/lows
-        swing_hl = smc.swing_highs_lows(data, swing_length=5)
 
         # Get trading setups
-        return analyze_trading_setup(data, swing_hl, ignore_old_ob)
+        return analyze_trading_setup(data)
 
     def generate_orders(self, analysis: Dict, min_setup_quality: float = 65.0,
                         min_volume_ratio: float = 2.0,
@@ -90,6 +89,8 @@ class FuturesStrategy:
         volatility = self._calculate_volatility(analysis.get('price_data'))
 
         for setup in analysis['trade_setups']:
+            print(setup['setup_quality'],
+                  setup['volume_score'], setup['position_type'],  setup['trade_recommendation'])
             # Filter setups by quality and volume
             if setup['setup_quality'] < min_setup_quality:
                 continue
@@ -114,6 +115,7 @@ class FuturesStrategy:
 
             # Extract order block levels
             ob_levels = setup.get('ob_level', '0-0')
+
             try:
                 ob_bottom, ob_top = map(float, ob_levels.split('-'))
             except (ValueError, AttributeError):

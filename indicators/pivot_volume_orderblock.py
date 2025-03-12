@@ -7,12 +7,13 @@ from binance_data_fetcher import BinanceDataFetcher
 from datetime import datetime, timedelta
 
 
-def detect_order_blocks(
+def detect_pivot_volume_order_blocks(
     df,
     length=5,
     bull_ext_last=3,
     bear_ext_last=10,
-    mitigation_method='Close'
+    mitigation_method='Close',
+    volume_lookback=20
 ):
     """
     Detect Order Blocks in OHLCV data.
@@ -23,12 +24,23 @@ def detect_order_blocks(
         bull_ext_last (int): Number of recent bullish OBs to track.
         bear_ext_last (int): Number of recent bearish OBs to track.
         mitigation_method (str): 'Wick' or 'Close' price for mitigation.
+        volume_lookback (int): Lookback period for volume moving average.
 
     Returns:
         pd.DataFrame: Updated DataFrame with OB signals and levels.
     """
 
     df = df.copy()
+
+    # Kiểm tra xem có dữ liệu khối lượng không
+    has_volume = 'volume' in df.columns
+
+    # Tính toán khối lượng trung bình nếu có dữ liệu khối lượng
+    if has_volume:
+        df['volume_ma'] = df['volume'].rolling(volume_lookback).mean()
+        # Điền giá trị NaN bằng giá trị đầu tiên có sẵn
+        df['volume_ma'] = df['volume_ma'].fillna(
+            df['volume'].iloc[0] if len(df) > 0 else 0)
 
     # Calculate indicators
     df['upper'] = df['high'].rolling(length).max()
@@ -83,14 +95,37 @@ def detect_order_blocks(
                            df['low'].iloc[left_idx]) / 2
                     bottom = df['low'].iloc[left_idx]
                     avg = (top + bottom) / 2
-                    bull_obs.insert(0, {
+
+                    # Tạo order block với thông tin khối lượng
+                    ob = {
                         'top': top,
                         'bottom': bottom,
                         'avg': avg,
                         'left_time': df.index[left_idx],
                         'mitigated_time': None,
-                        'mitigated': False
-                    })
+                        'mitigated': False,
+                        'direction': 'bullish',
+                        'volume': 0,  # Khởi tạo giá trị mặc định
+                        'strength': 0  # Khởi tạo giá trị mặc định
+                    }
+
+                    # Thêm thông tin khối lượng nếu có
+                    if has_volume:
+                        obVolume = df['volume'].iloc[left_idx]
+                        if left_idx + 1 < len(df):
+                            obVolume += df['volume'].iloc[left_idx + 1]
+                        if left_idx + 2 < len(df):
+                            obVolume += df['volume'].iloc[left_idx + 2]
+
+                        ob['volume'] = obVolume
+
+                        # Tính toán sức mạnh dựa trên khối lượng trung bình
+                        if df['volume_ma'].iloc[left_idx] > 0:
+                            percentage = min(
+                                int((obVolume / df['volume_ma'].iloc[left_idx]) * 100), 100)
+                            ob['strength'] = percentage
+
+                    bull_obs.insert(0, ob)
                     df.at[current_time, 'bull_ob'] = bottom
 
                 else:  # Bearish OB
@@ -98,14 +133,37 @@ def detect_order_blocks(
                               df['low'].iloc[left_idx]) / 2
                     top = df['high'].iloc[left_idx]
                     avg = (top + bottom) / 2
-                    bear_obs.insert(0, {
+
+                    # Tạo order block với thông tin khối lượng
+                    ob = {
                         'top': top,
                         'bottom': bottom,
                         'avg': avg,
                         'left_time': df.index[left_idx],
                         'mitigated_time': None,
-                        'mitigated': False
-                    })
+                        'mitigated': False,
+                        'direction': 'bearish',
+                        'volume': 0,  # Khởi tạo giá trị mặc định
+                        'strength': 0  # Khởi tạo giá trị mặc định
+                    }
+
+                    # Thêm thông tin khối lượng nếu có
+                    if has_volume:
+                        obVolume = df['volume'].iloc[left_idx]
+                        if left_idx + 1 < len(df):
+                            obVolume += df['volume'].iloc[left_idx + 1]
+                        if left_idx + 2 < len(df):
+                            obVolume += df['volume'].iloc[left_idx + 2]
+
+                        ob['volume'] = obVolume
+
+                        # Tính toán sức mạnh dựa trên khối lượng trung bình
+                        if df['volume_ma'].iloc[left_idx] > 0:
+                            percentage = min(
+                                int((obVolume / df['volume_ma'].iloc[left_idx]) * 100), 100)
+                            ob['strength'] = percentage
+
+                    bear_obs.insert(0, ob)
                     df.at[current_time, 'bear_ob'] = top
 
         # Mitigation checks
@@ -133,7 +191,7 @@ def detect_order_blocks(
         bull_obs = bull_obs[:bull_ext_last]
         bear_obs = bear_obs[:bear_ext_last]
 
-    return df, bull_obs, bear_obs
+    return df, bull_obs + bear_obs
 
 
 def plot_order_blocks(df, all_bull_obs, all_bear_obs):
@@ -193,5 +251,11 @@ if __name__ == "__main__":
     #                                  'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_volume', 'taker_buy_quote_volume', 'ignore'])
     # df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     # df.set_index('timestamp', inplace=True)
-    df, bull_obs, bear_obs = detect_order_blocks(data)
-    plot_order_blocks(df, bull_obs, bear_obs)
+    df, orders = detect_pivot_volume_order_blocks(data, length=5,
+                                                  bull_ext_last=5, bear_ext_last=10)
+    # Tách order blocks theo hướng
+    bullish_obs = [ob for ob in orders if ob['direction'] == 'bullish']
+    bearish_obs = [ob for ob in orders if ob['direction'] == 'bearish']
+    print("Bullish Order Blocks:", bullish_obs)
+    print("Bearish Order Blocks:", bearish_obs)
+    plot_order_blocks(df, bullish_obs, bearish_obs)

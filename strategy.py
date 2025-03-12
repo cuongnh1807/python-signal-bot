@@ -464,7 +464,7 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
     }
 
 
-def analyze_trading_setup(data, swing_hl, ignore_old_ob=True):
+def analyze_trading_setup(data, ignore_old_ob=True):
     """
     Analyze trading setups and calculate order percentages for active order blocks only
     """
@@ -493,7 +493,8 @@ def analyze_trading_setup(data, swing_hl, ignore_old_ob=True):
     # Determine current trend
     current_trend = 'UPTREND' if ema_34.iloc[-1] > ema_89.iloc[-1] else 'DOWNTREND'
     # Get order blocks
-    ob_results = smc.ob(data, swing_hl)
+    ob_results = smc.ob(data, type_orderblock='pivot_volume')
+    print("ob_results", ob_results)
 
     # Add velocity analysis
     velocity = calculate_velocity(data, 50)
@@ -502,126 +503,118 @@ def analyze_trading_setup(data, swing_hl, ignore_old_ob=True):
 
     # Analyze each order block
     for i in range(len(ob_results)):
-        if pd.notna(ob_results["OB"][i]):
-            # Check if order block is still active
-            x1 = int(ob_results["MitigatedIndex"][i]
-                     if ob_results["MitigatedIndex"][i] != 0 else len(data) - 1)
-            # Skip if order block has been mitigated
-            if ignore_old_ob and not (current_time < data.index[x1] + timedelta(minutes=30)):
-                continue
+        ob_volume = ob_results[i]['volume']
+        ob_direction = ob_results[i]["direction"]
+        ob_top = ob_results[i]["top"]
+        ob_bottom = ob_results[i]["bottom"]
+        ob_height = ob_top - ob_bottom
+        ob_height_percent = (ob_height/current_price) * 100
 
-            ob_volume = ob_results["OBVolume"][i]
-            ob_direction = ob_results["OB"][i]
-            ob_top = ob_results["Top"][i]
-            ob_bottom = ob_results["Bottom"][i]
-            ob_height = ob_top - ob_bottom
-            ob_height_percent = (ob_height/current_price) * 100
+        # Calculate volume metrics
+        volume_ratio = ob_volume / avg_volume
+        volume_score = min(100, int((volume_ratio - 1) * 50))
 
-            # Calculate volume metrics
-            volume_ratio = ob_volume / avg_volume
-            volume_score = min(100, int((volume_ratio - 1) * 50))
+        # Get risk assessment
+        risk_assessment = calculate_dynamic_risk_percentage(
+            data=data,
+            volume_score=volume_score,
+            ob_height_percent=ob_height_percent,
+            ob_direction=ob_direction,
+        )
 
-            # Get risk assessment
-            risk_assessment = calculate_dynamic_risk_percentage(
-                data=data,
-                volume_score=volume_score,
-                ob_height_percent=ob_height_percent,
-                ob_direction=ob_direction,
-            )
+        # Determine setup type based on OB direction, trend, and volume pressure
+        if ob_direction == "bullish":  # Bullish OB
+            if current_trend == 'DOWNTREND':
+                if volume_analysis['analysis']['pressure'] in ['Strong Buying', 'Moderate Buying']:
+                    # Break of Structure Long (Counter-trend)
+                    setup_type = 'LONG_BOS'
+                    setup_strength = 'Strong'
+                else:
+                    setup_type = 'LONG_CHoCH'  # Change of Character Long
+                    setup_strength = 'Moderate'
+            else:  # UPTREND
+                if volume_analysis['analysis']['pressure'] in ['Strong Buying Climax', 'Moderate Buying Climax']:
+                    setup_type = 'LONG_CONTINUATION'  # Continuation Long
+                    setup_strength = 'Strong'
+                else:
+                    setup_type = 'LONG_PULLBACK'  # Pullback in Uptrend
+                    setup_strength = 'Moderate'
 
-            # Determine setup type based on OB direction, trend, and volume pressure
-            if ob_direction == 1:  # Bullish OB
-                if current_trend == 'DOWNTREND':
-                    if volume_analysis['analysis']['pressure'] in ['Strong Buying', 'Moderate Buying']:
-                        # Break of Structure Long (Counter-trend)
-                        setup_type = 'LONG_BOS'
-                        setup_strength = 'Strong'
-                    else:
-                        setup_type = 'LONG_CHoCH'  # Change of Character Long
-                        setup_strength = 'Moderate'
-                else:  # UPTREND
-                    if volume_analysis['analysis']['pressure'] in ['Strong Buying Climax', 'Moderate Buying Climax']:
-                        setup_type = 'LONG_CONTINUATION'  # Continuation Long
-                        setup_strength = 'Strong'
-                    else:
-                        setup_type = 'LONG_PULLBACK'  # Pullback in Uptrend
-                        setup_strength = 'Moderate'
+        else:  # Bearish OB
+            if current_trend == 'UPTREND':
+                if volume_analysis['analysis']['pressure'] in ['Strong Selling Climax', 'Moderate Selling Climax']:
+                    # Break of Structure Short (Counter-trend)
+                    setup_type = 'SHORT_BOS'
+                    setup_strength = 'Strong'
+                else:
+                    setup_type = 'SHORT_CHoCH'  # Change of Character Short
+                    setup_strength = 'Moderate'
+            else:  # DOWNTREND
+                if volume_analysis['analysis']['pressure'] in ['Strong Selling Climax', 'Moderate Selling Climax']:
+                    setup_type = 'SHORT_CONTINUATION'  # Continuation Short
+                    setup_strength = 'Strong'
+                else:
+                    setup_type = 'SHORT_PULLBACK'  # Pullback in Downtrend
+                    setup_strength = 'Moderate'
 
-            else:  # Bearish OB
-                if current_trend == 'UPTREND':
-                    if volume_analysis['analysis']['pressure'] in ['Strong Selling Climax', 'Moderate Selling Climax']:
-                        # Break of Structure Short (Counter-trend)
-                        setup_type = 'SHORT_BOS'
-                        setup_strength = 'Strong'
-                    else:
-                        setup_type = 'SHORT_CHoCH'  # Change of Character Short
-                        setup_strength = 'Moderate'
-                else:  # DOWNTREND
-                    if volume_analysis['analysis']['pressure'] in ['Strong Selling Climax', 'Moderate Selling Climax']:
-                        setup_type = 'SHORT_CONTINUATION'  # Continuation Short
-                        setup_strength = 'Strong'
-                    else:
-                        setup_type = 'SHORT_PULLBACK'  # Pullback in Downtrend
-                        setup_strength = 'Moderate'
+        # Get the risk percentage from the assessment
+        risk_percentage = risk_assessment['risk_percentage']
 
-            # Get the risk percentage from the assessment
-            risk_percentage = risk_assessment['risk_percentage']
+        # Adjust leverage based on risk
+        if risk_percentage <= 0.5:
+            max_leverage = 30  # More conservative setups allow higher leverage
+        elif risk_percentage <= 0.75:
+            max_leverage = 50  # Moderate risk setups
+        else:
+            max_leverage = 70  # Higher risk setups get limited leverage
 
-            # Adjust leverage based on risk
-            if risk_percentage <= 0.5:
-                max_leverage = 30  # More conservative setups allow higher leverage
-            elif risk_percentage <= 0.75:
-                max_leverage = 50  # Moderate risk setups
-            else:
-                max_leverage = 70  # Higher risk setups get limited leverage
+        if risk_percentage <= 0:
+            suggested_leverage = 10
+        else:
+            suggested_leverage = min(
+                max_leverage, int(1 / risk_percentage * 50))
 
-            if risk_percentage <= 0:
-                suggested_leverage = 10
-            else:
-                suggested_leverage = min(
-                    max_leverage, int(1 / risk_percentage * 50))
+        # Get entry quality based on setup quality
+        if risk_assessment['setup_quality'] >= 80:
+            entry_quality = 'Excellent'
+        elif risk_assessment['setup_quality'] >= 65:
+            entry_quality = 'Good'
+        elif risk_assessment['setup_quality'] >= 50:
+            entry_quality = 'Moderate'
+        else:
+            entry_quality = 'Poor'
 
-            # Get entry quality based on setup quality
-            if risk_assessment['setup_quality'] >= 80:
-                entry_quality = 'Excellent'
-            elif risk_assessment['setup_quality'] >= 65:
-                entry_quality = 'Good'
-            elif risk_assessment['setup_quality'] >= 50:
-                entry_quality = 'Moderate'
-            else:
-                entry_quality = 'Poor'
+        # Create setup dictionary
+        setup = {
+            'current_price': current_price,
+            'type': setup_type,
+            'ob_direction': 'Bullish' if ob_direction == 1 else 'Bearish',
+            'current_trend': current_trend,
+            'ob_level': f"{ob_bottom:.0f}-{ob_top:.0f}",
+            'volume_score': volume_score,
+            'volume_ratio': volume_ratio,
+            'ob_volume': ob_volume,
+            'ob_volume_ratio': ob_volume / avg_volume,
+            'risk_percentage': risk_percentage,
+            'suggested_leverage': suggested_leverage,
+            'setup_quality': risk_assessment['setup_quality'],
+            'entry_quality': entry_quality,
+            'trade_recommendation': risk_assessment['trade_recommendation'],
+            'warning_messages': risk_assessment['warning_messages'],
+            'risk_factors': risk_assessment['risk_factors'],
+            'risk_rating': 'Low' if risk_percentage <= 0.5 else
+            'Moderate' if risk_percentage <= 0.75 else 'High',
+            'effective_risk': risk_percentage * suggested_leverage
+        }
+        setup.update({
+            'setup_type': setup_type,
+            'setup_strength': setup_strength,
+            'setup_description': setup_classification[setup_type],
+            'position_type': 'LONG' if setup_type.startswith('LONG') else 'SHORT',
+        })
 
-            # Create setup dictionary
-            setup = {
-                'current_price': current_price,
-                'type': setup_type,
-                'ob_direction': 'Bullish' if ob_direction == 1 else 'Bearish',
-                'current_trend': current_trend,
-                'ob_level': f"{ob_bottom:.0f}-{ob_top:.0f}",
-                'volume_score': volume_score,
-                'volume_ratio': volume_ratio,
-                'ob_volume': ob_volume,
-                'ob_volume_ratio': ob_volume / avg_volume,
-                'risk_percentage': risk_percentage,
-                'suggested_leverage': suggested_leverage,
-                'setup_quality': risk_assessment['setup_quality'],
-                'entry_quality': entry_quality,
-                'trade_recommendation': risk_assessment['trade_recommendation'],
-                'warning_messages': risk_assessment['warning_messages'],
-                'risk_factors': risk_assessment['risk_factors'],
-                'risk_rating': 'Low' if risk_percentage <= 0.5 else
-                'Moderate' if risk_percentage <= 0.75 else 'High',
-                'effective_risk': risk_percentage * suggested_leverage
-            }
-            setup.update({
-                'setup_type': setup_type,
-                'setup_strength': setup_strength,
-                'setup_description': setup_classification[setup_type],
-                'position_type': 'LONG' if setup_type.startswith('LONG') else 'SHORT',
-            })
-
-            # Add velocity analysis to each setup
-            trade_setups.append(setup)
+        # Add velocity analysis to each setup
+        trade_setups.append(setup)
 
     # Sort setups by:
     # 2. Setup quality (highest first)
@@ -631,6 +624,7 @@ def analyze_trading_setup(data, swing_hl, ignore_old_ob=True):
         -x['setup_quality'],          # Secondary: highest quality
         -x['volume_score']            # Tertiary: highest volume
     ))
+
     return {
         "trade_setups": trade_setups,
         "current_price": current_price,

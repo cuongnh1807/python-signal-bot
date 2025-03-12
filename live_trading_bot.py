@@ -265,7 +265,6 @@ class TelegramNotifier:
         # get macd info from volume_analysis
         macd_info = velocity.get('macd_signals', {})
         ma_analysis = velocity.get('ma_analysis', {})
-
         ema50 = ma_analysis.get('ema50', 0)
         ema200 = ma_analysis.get('ema200', 0)
         macd_buy = macd_info.get('buy_signal', False)
@@ -282,16 +281,16 @@ class TelegramNotifier:
         price_to_ema200 = ((current_price / ema200) -
                            1) * 100 if ema200 > 0 else 0
 
-        message = f"⚡️ <b>Momentum Analysis</b>\n"
-        f"• MA Status: {'Above EMA50 ↗️' if velocity.get('ma_analysis', {}).get('above_ema50') else 'Below EMA50 ↘️'}\n"
-        f"• EMA50: {ema50:.2f} ({price_to_ema50:.2f}%)\n"
-        f"• EMA200: {ema200:.2f} ({price_to_ema200:.2f}%)\n"
-        f"• EMA Signal: {'✅ Bullish Cross' if velocity.get('ma_analysis', {}).get('ema_crossover') else '❌ No Cross'}\n"
-        f"• RSI ({velocity.get('rsi_analysis', {}).get('current', 0):.1f}): "
-        f"{'🔴 Overbought' if velocity.get('rsi_analysis', {}).get('overbought') else '🟢 Oversold' if velocity.get('rsi_analysis', {}).get('oversold') else '⚪️ Neutral'}\n"
-        f"• MACD Signal: {macd_signal}\n"
-        f"• MACD Trend: {macd_trend}\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        message = (f"⚡️ <b>Momentum Analysis</b>\n"
+                   f"• MA Status: {'Above EMA50 ↗️' if velocity.get('ma_analysis', {}).get('above_ema50') else 'Below EMA50 ↘️'}\n"
+                   f"• EMA50: {ema50:.2f} ({price_to_ema50:.2f}%)\n"
+                   f"• EMA200: {ema200:.2f} ({price_to_ema200:.2f}%)\n"
+                   f"• EMA Signal: {'✅ Bullish Cross' if velocity.get('ma_analysis', {}).get('ema_crossover') else '❌ No Cross'}\n"
+                   f"• RSI ({velocity.get('rsi_analysis', {}).get('current', 0):.1f}): "
+                   f"{'🔴 Overbought' if velocity.get('rsi_analysis', {}).get('overbought') else '🟢 Oversold' if velocity.get('rsi_analysis', {}).get('oversold') else '⚪️ Neutral'}\n"
+                   f"• MACD Signal: {macd_signal}\n"
+                   f"• MACD Trend: {macd_trend}\n"
+                   "━━━━━━━━━━━━━━━━━━━━━━\n")
         self.send_message(message)
 
 
@@ -306,7 +305,6 @@ class LiveTradingBot:
                  api_secret: str,
                  symbol: str = "BTCUSDT",
                  interval: str = "15m",
-                 initial_capital: float = 1000.0,
                  max_risk_per_trade: float = 0.02,
                  leverage: int = 20,
                  window_size: int = 400,
@@ -327,7 +325,6 @@ class LiveTradingBot:
         api_secret: Binance API secret
         symbol: Trading symbol (e.g., "BTCUSDT")
         interval: Timeframe interval (e.g., "4h", "1d")
-        initial_capital: Initial capital for trading
         max_risk_per_trade: Maximum risk per trade as percentage of capital
         leverage: Fixed leverage to use
         window_size: Number of candles to use for analysis
@@ -343,7 +340,6 @@ class LiveTradingBot:
         self.api_secret = api_secret
         self.symbol = symbol
         self.interval = interval
-        self.initial_capital = initial_capital
         self.max_risk_per_trade = max_risk_per_trade
         self.leverage = leverage
         self.window_size = window_size
@@ -358,6 +354,7 @@ class LiveTradingBot:
         self.last_signal = None
         self.last_analysis_time = None
         self.in_position = False
+        self.tickerInfo = None
 
         # Support & resistance levels
         self.support_levels = []
@@ -369,9 +366,13 @@ class LiveTradingBot:
         # Initialize data fetcher
         self.data_fetcher = BinanceDataFetcher()
 
+        # Lấy số dư USDT từ tài khoản Futures
+        self.initial_capital = self._get_usdt_balance()
+        self.tickerInfo = self.client.get_symbol_info(self.symbol)
+
         # Initialize strategy
         self.strategy = FuturesStrategy(
-            initial_capital=initial_capital,
+            initial_capital=self.initial_capital,
             max_risk_per_trade=max_risk_per_trade,
             default_leverage=leverage
         )
@@ -396,7 +397,63 @@ class LiveTradingBot:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         logger.info(
-            f"Initialized LiveTradingBot for {symbol} on {interval} timeframe")
+            f"Initialized LiveTradingBot for {symbol} on {interval} timeframe with {self.initial_capital} USDT")
+
+    def _get_usdt_balance(self) -> float:
+        """Lấy số dư USDT từ tài khoản Futures"""
+        try:
+            if self.test_mode:
+                # Trong chế độ test, sử dụng giá trị mặc định
+                logger.info("Test mode: Using default balance of 1000 USDT")
+                return 1000.0
+
+            # Lấy thông tin tài khoản Futures
+            account_info = self.client.futures_account_balance()
+
+            # Tìm USDT trong danh sách tài sản
+            usdt_balance = 0.0
+            for asset in account_info:
+                if asset['asset'] == 'USDT':
+                    usdt_balance = float(asset['balance'])
+                    break
+
+            logger.info(f"Current USDT balance: {usdt_balance}")
+
+            # Nếu số dư quá nhỏ, đưa ra cảnh báo
+            if usdt_balance < 10.0:
+                warning_msg = f"WARNING: Low USDT balance ({usdt_balance}). Trading may be limited."
+                logger.warning(warning_msg)
+                if self.telegram:
+                    self.telegram.notify_error(warning_msg)
+
+            return usdt_balance
+
+        except Exception as e:
+            error_msg = f"Error getting USDT balance: {str(e)}"
+            logger.error(error_msg)
+            if hasattr(self, 'telegram') and self.telegram:
+                self.telegram.notify_error(error_msg)
+            # Trả về giá trị mặc định nếu có lỗi
+            return 1000.0
+
+    def _update_capital(self):
+        """Cập nhật vốn dựa trên số dư USDT hiện tại"""
+        try:
+            if not self.test_mode:
+                # Lấy số dư USDT mới
+                new_balance = self._get_usdt_balance()
+
+                # Cập nhật vốn trong strategy
+                self.strategy.capital = new_balance
+                self.initial_capital = new_balance
+
+                logger.info(f"Updated capital to {new_balance} USDT")
+
+        except Exception as e:
+            error_msg = f"Error updating capital: {str(e)}"
+            logger.error(error_msg)
+            if self.telegram:
+                self.telegram.notify_error(error_msg)
 
     def _fetch_initial_data(self):
         """Fetch initial historical data"""
@@ -1000,16 +1057,12 @@ class LiveTradingBot:
                 leverage=order['leverage']
             )
 
-            # Set margin type to ISOLATED
-            self.client.futures_change_margin_type(
-                symbol=self.symbol,
-                marginType='ISOLATED'
-            )
-
             # Calculate quantity
             quantity = order['position_size'] / order['entry_price']
             quantity = self._round_step_size(quantity)
-
+            print("quantity", quantity)
+            print("order['position_size']", order['position_size'])
+            print("order['entry_type']", order['entry_type'])
             # Determine order type and parameters
             if order['entry_type'] == 'MARKET':
                 # Place market order
@@ -1017,7 +1070,7 @@ class LiveTradingBot:
                     symbol=self.symbol,
                     side='BUY' if order['side'] == 'LONG' else 'SELL',
                     type='MARKET',
-                    quantity=quantity
+                    quoteOrderQty=self._round_step_size(order['position_size'])
                 )
 
                 # Get filled price
@@ -1046,8 +1099,8 @@ class LiveTradingBot:
                     side='BUY' if order['side'] == 'LONG' else 'SELL',
                     type='LIMIT',
                     timeInForce='GTC',
-                    quantity=quantity,
-                    price=order['entry_price']
+                    quantity=round(quantity, 3),
+                    price=self._round_tick_size(order['entry_price'])
                 )
 
                 order['order_id'] = response['orderId']
@@ -1073,14 +1126,15 @@ class LiveTradingBot:
             # Calculate quantity
             quantity = order['position_size'] / order['actual_entry_price']
             quantity = self._round_step_size(quantity)
-
+            stopPrice = self._round_tick_size(order['stop_loss'])
+            print("stopPrice", stopPrice)
             # Place stop loss order
             response = self.client.futures_create_order(
                 symbol=self.symbol,
                 side='SELL' if order['side'] == 'LONG' else 'BUY',
                 type='STOP_MARKET',
                 quantity=quantity,
-                stopPrice=order['stop_loss'],
+                stopPrice=stopPrice,
                 closePosition=True
             )
 
@@ -1108,6 +1162,8 @@ class LiveTradingBot:
             qty_per_level = self._round_step_size(qty_per_level)
 
             for tp_name, tp_price in order['take_profit'].items():
+                tp_price = self._round_tick_size(tp_price)
+                print("tp_price", tp_price)
                 response = self.client.futures_create_order(
                     symbol=self.symbol,
                     side='SELL' if order['side'] == 'LONG' else 'BUY',
@@ -1130,10 +1186,9 @@ class LiveTradingBot:
         """Round quantity to valid step size"""
         try:
             # Get symbol info
-            info = self.client.get_symbol_info(self.symbol)
 
             # Find the quantity filter
-            filters = info['filters']
+            filters = self.tickerInfo['filters']
             step_size = None
 
             for f in filters:
@@ -1148,15 +1203,40 @@ class LiveTradingBot:
                     precision = len(str(step_size).split('.')[-1].rstrip('0'))
 
                 # Round to precision
-                return round(quantity - (quantity % step_size), precision)
+                return round(quantity - (quantity % step_size), precision if precision < 3 else 3)
             else:
                 # Default to 5 decimals if no step size found
-                return round(quantity, 5)
+                return round(quantity, 2)
 
         except Exception as e:
             logger.error(f"Error rounding quantity: {str(e)}")
             # Default to 5 decimals
-            return round(quantity, 5)
+            return round(quantity, 2)
+
+    def _round_tick_size(self, price: float) -> float:
+        """Round price to valid tick size"""
+        try:
+
+            # Find the price filter
+            filters = self.tickerInfo['filters']
+            tick_size = None
+
+            for f in filters:
+                if f['filterType'] == 'PRICE_FILTER':
+                    tick_size = float(f['tickSize'])
+                    break
+
+            if tick_size:
+                # Round to tick size
+                return round(price / tick_size) * tick_size
+            else:
+                # Default to 5 decimals if no tick size found
+                return round(price, 2)
+
+        except Exception as e:
+            logger.error(f"Error rounding price: {str(e)}")
+            # Default to 5 decimals
+            return round(price, 2)
 
     def _check_order_status(self):
         """Check status of active orders and update accordingly"""
@@ -1382,7 +1462,7 @@ class LiveTradingBot:
                     continue
 
                 # Create signature for this order
-                order_signature = f"{order['side']}_{order['setup_type']}_{order['entry_price']:.2f}_{order['stop_loss']:.2f}"
+                order_signature = f"{order['side']}_{self._round_tick_size(order['entry_price']):.2f}"
 
                 # If this order signature is not in the new recommendations, cancel it
                 if order_signature not in new_order_signatures:
@@ -1420,7 +1500,7 @@ class LiveTradingBot:
             order = self.active_orders[order_id]
 
             # Create signature for this order
-            order_signature = f"{order['side']}_{order['setup_type']}_{order['entry_price']:.2f}_{order['stop_loss']:.2f}"
+            order_signature = f"{order['side']}_{self._round_tick_size(order['entry_price']):.2f}"
 
             # If this order signature is not in the new recommendations, cancel it
             if order_signature not in new_order_signatures:
@@ -1537,6 +1617,9 @@ class LiveTradingBot:
         """Continuously run market analysis at interval boundaries"""
         while self.running:
             try:
+                # Cập nhật vốn trước khi phân tích
+                self._update_capital()
+
                 # Calculate time until next candle closes
                 now = datetime.now()
                 seconds_in_interval = self._get_interval_seconds(self.interval)
@@ -1597,6 +1680,10 @@ class LiveTradingBot:
 
     def get_status(self) -> Dict:
         """Get current status of the trading bot"""
+        # Cập nhật vốn trước khi trả về trạng thái
+        if not self.test_mode:
+            self._update_capital()
+
         status = {
             'running': self.running,
             'symbol': self.symbol,
@@ -1632,7 +1719,6 @@ if __name__ == "__main__":
     print(api_key, api_secret)
     symbol = os.environ.get('TRADING_SYMBOL', 'BTCUSDT')
     interval = os.environ.get('TRADING_INTERVAL', '15m')
-    initial_capital = float(os.environ.get('INITIAL_CAPITAL', '1000.0'))
     max_risk_per_trade = float(os.environ.get('MAX_RISK_PER_TRADE', '0.02'))
     leverage = int(os.environ.get('LEVERAGE', '20'))
     window_size = int(os.environ.get('WINDOW_SIZE', '100'))
@@ -1642,7 +1728,7 @@ if __name__ == "__main__":
 
     # Telegram settings
     telegram_enabled = os.environ.get(
-        'TELEGRAM_ENABLED', 'false').lower() == 'true'
+        'TELEGRAM_ENABLED', 'true').lower() == 'true'
     telegram_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
     telegram_chat_id = os.environ.get('TELEGRAM_CHAT_ID', '')
     telegram_orders_topic_id = os.environ.get(
@@ -1650,19 +1736,12 @@ if __name__ == "__main__":
     telegram_signals_topic_id = os.environ.get(
         'TELEGRAM_SIGNALS_TOPIC_ID', '6215')
 
-    # Validate required configuration
-    # if not api_key or not api_secret:
-    #     logger.error(
-    #         "API key and secret are required. Set them in environment variables or config file.")
-    #     sys.exit(1)
-
     # Create and start trading bot
     bot = LiveTradingBot(
         api_key=api_key,
         api_secret=api_secret,
         symbol=symbol,
         interval=interval,
-        initial_capital=initial_capital,
         max_risk_per_trade=max_risk_per_trade,
         leverage=leverage,
         window_size=window_size,

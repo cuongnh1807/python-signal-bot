@@ -494,12 +494,11 @@ def analyze_trading_setup(data, ignore_old_ob=True):
     current_trend = 'UPTREND' if ema_34.iloc[-1] > ema_89.iloc[-1] else 'DOWNTREND'
     # Get order blocks
     ob_results = smc.ob(data, type_orderblock='pivot_volume')
-    print("ob_results", ob_results)
 
     # Add velocity analysis
-    velocity = calculate_velocity(data, 50)
+    velocity = calculate_velocity(data, 30)
 
-    volume_analysis = analyze_volume_patterns(data, lookback=50)
+    volume_analysis = analyze_volume_patterns(data, lookback=30)
 
     # Analyze each order block
     for i in range(len(ob_results)):

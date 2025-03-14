@@ -303,13 +303,14 @@ class LiveTradingBot:
     def __init__(self,
                  api_key: str,
                  api_secret: str,
-                 symbol: str = "BTCUSDT",
-                 interval: str = "15m",
+                 symbol: str,
+                 interval: str = '15m',
                  max_risk_per_trade: float = 0.02,
                  leverage: int = 20,
-                 window_size: int = 400,
+                 window_size: int = 100,
                  min_setup_quality: float = 70.0,
                  min_volume_ratio: float = 3.0,
+                 max_distance_to_current_price: float = 5.0,
                  test_mode: bool = True,
                  telegram: TelegramNotifier = None,
                  # EMA Crossover params
@@ -335,6 +336,7 @@ class LiveTradingBot:
         fast_ema: Fast EMA period for crossover strategy
         slow_ema: Slow EMA period for crossover strategy
         volume_threshold: Volume threshold for crossover strategy
+        max_distance_to_current_price: Maximum distance from current price for placing orders
         """
         self.api_key = api_key
         self.api_secret = api_secret
@@ -395,6 +397,9 @@ class LiveTradingBot:
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+
+        # New parameter
+        self.max_distance_to_current_price = max_distance_to_current_price
 
         logger.info(
             f"Initialized LiveTradingBot for {symbol} on {interval} timeframe with {self.initial_capital} USDT")
@@ -1015,6 +1020,16 @@ class LiveTradingBot:
         """Process new orders and place them on the exchange"""
         for order in new_orders:
             try:
+                # Kiểm tra khoảng cách từ giá hiện tại đến giá vào lệnh
+                price_distance_percent = abs(
+                    (order['entry_price'] / self.current_price) - 1) * 100
+
+                # Nếu khoảng cách vượt quá giới hạn, bỏ qua lệnh này
+                if price_distance_percent > self.max_distance_to_current_price:
+                    logger.info(
+                        f"Skipping {order['side']} order: Entry price {order['entry_price']} is {price_distance_percent:.2f}% away from current price {self.current_price}, exceeding limit of {self.max_distance_to_current_price}%")
+                    continue
+
                 # Add timestamp
                 order['created_time'] = datetime.now()
                 order['symbol'] = self.symbol
@@ -1716,7 +1731,6 @@ if __name__ == "__main__":
     # Load configuration from environment variables first, then fallback to config file
     api_key = os.environ.get('BINANCE_API_KEY')
     api_secret = os.environ.get('BINANCE_API_SECRET')
-    print(api_key, api_secret)
     symbol = os.environ.get('TRADING_SYMBOL', 'BTCUSDT')
     interval = os.environ.get('TRADING_INTERVAL', '15m')
     max_risk_per_trade = float(os.environ.get('MAX_RISK_PER_TRADE', '0.02'))

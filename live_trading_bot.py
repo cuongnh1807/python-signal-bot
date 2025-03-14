@@ -22,6 +22,7 @@ from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
 from strategy import calculate_rsi
+from time_synchronizer import initialize_time_sync, get_time_synchronizer
 
 # Configure logging
 logging.basicConfig(
@@ -313,6 +314,7 @@ class LiveTradingBot:
                  max_distance_to_current_price: float = 5.0,
                  test_mode: bool = True,
                  telegram: TelegramNotifier = None,
+                 time_synchronizer=None,
                  # EMA Crossover params
                  fast_ema: int = 8,
                  slow_ema: int = 21,
@@ -361,6 +363,16 @@ class LiveTradingBot:
         # Support & resistance levels
         self.support_levels = []
         self.resistance_levels = []
+
+        # Initialize or use provided time synchronizer
+        if time_synchronizer:
+            self.time_sync = time_synchronizer
+        else:
+            try:
+                self.time_sync = get_time_synchronizer()
+            except RuntimeError:
+                # Initialize if not already done
+                self.time_sync = initialize_time_sync(api_key, api_secret)
 
         # Initialize Binance client
         self.client = Client(api_key, api_secret)
@@ -1064,20 +1076,25 @@ class LiveTradingBot:
                 self.telegram.notify_error(error_msg)
 
     def _place_order_on_exchange(self, order: Dict):
-        """Place an order on Binance"""
+        """Place an order on Binance with proper time synchronization"""
         try:
+            # Get timestamp and recvWindow parameters
+            time_params = self.time_sync.get_timestamp_with_recvwindow()
+
             # Set leverage first
             self.client.futures_change_leverage(
                 symbol=self.symbol,
-                leverage=order['leverage']
+                leverage=order['leverage'],
+                **time_params  # Add timestamp and recvWindow
             )
 
             # Calculate quantity
             quantity = order['position_size'] / order['entry_price']
             quantity = self._round_step_size(quantity)
-            print("quantity", quantity)
-            print("order['position_size']", order['position_size'])
-            print("order['entry_type']", order['entry_type'])
+
+            # Get updated timestamp for the next request
+            time_params = self.time_sync.get_timestamp_with_recvwindow()
+
             # Determine order type and parameters
             if order['entry_type'] == 'MARKET':
                 # Place market order
@@ -1085,7 +1102,9 @@ class LiveTradingBot:
                     symbol=self.symbol,
                     side='BUY' if order['side'] == 'LONG' else 'SELL',
                     type='MARKET',
-                    quoteOrderQty=self._round_step_size(order['position_size'])
+                    quoteOrderQty=self._round_step_size(
+                        order['position_size']),
+                    **time_params  # Add timestamp and recvWindow
                 )
 
                 # Get filled price
@@ -1115,7 +1134,8 @@ class LiveTradingBot:
                     type='LIMIT',
                     timeInForce='GTC',
                     quantity=round(quantity, 3),
-                    price=self._round_tick_size(order['entry_price'])
+                    price=self._round_tick_size(order['entry_price']),
+                    **time_params  # Add timestamp and recvWindow
                 )
 
                 order['order_id'] = response['orderId']
@@ -1150,7 +1170,8 @@ class LiveTradingBot:
                 type='STOP_MARKET',
                 quantity=quantity,
                 stopPrice=stopPrice,
-                closePosition=True
+                closePosition=True,
+                **self.time_sync.get_timestamp_with_recvwindow()  # Add timestamp and recvWindow
             )
 
             order['stop_loss_order_id'] = response['orderId']
@@ -1184,7 +1205,8 @@ class LiveTradingBot:
                     side='SELL' if order['side'] == 'LONG' else 'BUY',
                     type='TAKE_PROFIT_MARKET',
                     quantity=qty_per_level,
-                    stopPrice=tp_price
+                    stopPrice=tp_price,
+                    **self.time_sync.get_timestamp_with_recvwindow()  # Add timestamp and recvWindow
                 )
 
                 tp_order_ids[tp_name] = response['orderId']

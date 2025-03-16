@@ -1009,6 +1009,7 @@ class LiveTradingBot:
                     # Create a unique signature based on key order properties
                     signature = f"{order['side']}_{self._round_tick_size(order['entry_price']):.2f}"
                     new_order_signatures.add(signature)
+                    order['signature'] = signature
 
                 logger.info(f"Generated {len(new_orders)} new orders")
                 self._process_new_orders(new_orders)
@@ -1033,6 +1034,11 @@ class LiveTradingBot:
         """Process new orders and place them on the exchange"""
         for order in new_orders:
             try:
+                if order['signature'] in self.active_orders:
+                    logger.info(
+                        f"Skipping {order['side']} order: {order['signature']} already exists")
+                    continue
+
                 # Kiểm tra khoảng cách từ giá hiện tại đến giá vào lệnh
                 price_distance_percent = abs(
                     (order['entry_price'] / self.current_price) - 1) * 100
@@ -1051,11 +1057,6 @@ class LiveTradingBot:
                 order['price_to_entry_percent'] = (
                     (order['entry_price'] / self.current_price) - 1) * 100
 
-                # Log order details
-                logger.info(f"New {order['side']} order: {order['setup_type']}, "
-                            f"Entry: {order['entry_price']}, Stop: {order['stop_loss']}, "
-                            f"Quality: {order['setup_quality']}, Volume: {order['volume_ratio']}")
-
                 # Send Telegram notification
                 self.telegram.notify_order_created(order)
 
@@ -1067,9 +1068,7 @@ class LiveTradingBot:
                         f"TEST MODE: Would place {order['side']} order at {order['entry_price']}")
 
                     # In test mode, simulate order placement
-                    order_id = f"test_{int(time.time())}_{len(self.active_orders)}"
-                    order['order_id'] = order_id
-                    self.active_orders[order_id] = order
+                    self.active_orders[order['signature']] = order
 
             except Exception as e:
                 error_msg = f"Error processing order: {str(e)}"

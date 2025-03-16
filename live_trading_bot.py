@@ -283,6 +283,7 @@ class TelegramNotifier:
                            1) * 100 if ema200 > 0 else 0
 
         message = (f"⚡️ <b>Momentum Analysis</b>\n"
+                   f"• Current Price: {current_price:.2f}\n"
                    f"• MA Status: {'Above EMA50 ↗️' if velocity.get('ma_analysis', {}).get('above_ema50') else 'Below EMA50 ↘️'}\n"
                    f"• EMA50: {ema50:.2f} ({price_to_ema50:.2f}%)\n"
                    f"• EMA200: {ema200:.2f} ({price_to_ema200:.2f}%)\n"
@@ -1006,7 +1007,7 @@ class LiveTradingBot:
                 # Create signatures for new orders for later comparison
                 for order in new_orders:
                     # Create a unique signature based on key order properties
-                    signature = f"{order['side']}_{order['setup_type']}_{order['entry_price']:.2f}_{order['stop_loss']:.2f}"
+                    signature = f"{order['side']}_{self._round_tick_size(order['entry_price']):.2f}"
                     new_order_signatures.add(signature)
 
                 logger.info(f"Generated {len(new_orders)} new orders")

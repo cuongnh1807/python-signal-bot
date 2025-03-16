@@ -4,21 +4,21 @@
       "symbol": "BTCUSDT",
       "interval": "15m",
       "max_risk_per_trade": 0.02,
-      "leverage": 20,
+      "leverage": 15,
       "window_size": 100,
       "min_setup_quality": 70.0,
       "min_volume_ratio": 3.0,
-      "max_distance_to_current_price": 0.5
+      "max_distance_to_current_price": 2
     },
     {
       "symbol": "ETHUSDT",
       "interval": "15m",
       "max_risk_per_trade": 0.015,
-      "leverage": 15,
+      "leverage": 10,
       "window_size": 100,
       "min_setup_quality": 70,
       "min_volume_ratio": 3,
-      "max_distance_to_current_price": 0.3
+      "max_distance_to_current_price": 1
     },
     {
       "symbol": "SOLUSDT",
@@ -28,7 +28,7 @@
       "window_size": 100,
       "min_setup_quality": 70,
       "min_volume_ratio": 3,
-      "max_distance_to_current_price": 0.3
+      "max_distance_to_current_price": 1
     }
   ]
 }

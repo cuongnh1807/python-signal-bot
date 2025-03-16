@@ -1133,7 +1133,8 @@ class LiveTradingBot:
                     side='BUY' if order['side'] == 'LONG' else 'SELL',
                     type='LIMIT',
                     timeInForce='GTC',
-                    quantity=round(quantity, 3),
+                    quoteOrderQty=self._round_step_size(
+                        order['position_size']),
                     price=self._round_tick_size(order['entry_price']),
                     **time_params  # Add timestamp and recvWindow
                 )
@@ -1240,7 +1241,7 @@ class LiveTradingBot:
                     precision = len(str(step_size).split('.')[-1].rstrip('0'))
 
                 # Round to precision
-                return round(quantity - (quantity % step_size), precision if precision < 3 else 3)
+                return round(quantity - (quantity % step_size), precision if precision < 3 else 2)
             else:
                 # Default to 5 decimals if no step size found
                 return round(quantity, 2)

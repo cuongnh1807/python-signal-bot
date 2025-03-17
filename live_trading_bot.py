@@ -150,6 +150,7 @@ class TelegramNotifier:
 
         # Calculate risk-reward for TP2
         risk = abs(entry_price - stop_loss)
+        print("order: ", order)
         tp2 = order['take_profit'].get('tp2', 0) if isinstance(
             order.get('take_profit', {}), dict) else 0
         rr = abs(tp2 - entry_price) / risk if risk > 0 else 0

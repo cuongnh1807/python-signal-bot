@@ -4,7 +4,7 @@
       "symbol": "BTCUSDT",
       "interval": "15m",
       "max_risk_per_trade": 0.02,
-      "leverage": 15,
+      "leverage": 10,
       "window_size": 300,
       "min_setup_quality": 70.0,
       "min_volume_ratio": 3.0,

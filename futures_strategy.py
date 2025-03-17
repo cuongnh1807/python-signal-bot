@@ -141,6 +141,22 @@ class FuturesStrategy:
             stop_loss = self._calculate_stop_from_ob(
                 side, ob_bottom, ob_top, entry_price, volume_ratio, volatility)
 
+            # Kiểm tra và đảm bảo stop loss khác với entry price
+            if abs(entry_price - stop_loss) < 0.0001:  # Nếu quá gần nhau
+                # Điều chỉnh stop loss để tạo khoảng cách tối thiểu
+                min_distance = entry_price * 0.005  # 0.5% của giá entry
+                if volatility is not None:
+                    # Hoặc 50% của volatility
+                    min_distance = max(min_distance, volatility * 0.5)
+
+                if side == "LONG":
+                    stop_loss = entry_price - min_distance
+                else:  # SHORT
+                    stop_loss = entry_price + min_distance
+
+                logger.info(
+                    f"Adjusted stop loss to ensure minimum distance from entry price: {stop_loss}")
+
             # Calculate risk distance in price units
             risk_distance = abs(entry_price - stop_loss)
 
@@ -295,6 +311,10 @@ class FuturesStrategy:
         """
         ob_height = ob_top - ob_bottom
 
+        # Đảm bảo ob_height không quá nhỏ
+        min_height = entry_price * 0.001  # Tối thiểu 0.1% của giá entry
+        ob_height = max(ob_height, min_height)
+
         # Adjust buffer based on volume ratio - higher volume = wider stop
         # Volume ratio > 10 indicates very significant level that may have more volatility
         if volume_ratio >= 10:
@@ -307,12 +327,13 @@ class FuturesStrategy:
             buffer_ratio = 0.3  # Tighter buffer for low volume OB
 
         # Use volatility to ensure minimum stop distance
-        min_stop_distance = 0
+        min_stop_distance = entry_price * 0.005  # Tối thiểu 0.5% của giá entry
         if volatility is not None:
             # Scale volatility buffer with volume ratio
             # Higher volume = higher multiplier
             vol_multiplier = 2.0 + (volume_ratio * 0.2)
-            min_stop_distance = volatility * vol_multiplier
+            min_stop_distance = max(
+                min_stop_distance, volatility * vol_multiplier)
 
         # Calculate stop distance
         stop_distance = max(ob_height * buffer_ratio, min_stop_distance)
@@ -324,7 +345,7 @@ class FuturesStrategy:
                 return entry_price - stop_distance
             elif entry_price <= ob_top:
                 # Entry inside OB
-                return ob_bottom - (ob_height * buffer_ratio)
+                return min(entry_price - stop_distance, ob_bottom - (ob_height * buffer_ratio))
             else:
                 # Entry above OB
                 return ob_bottom - (ob_height * buffer_ratio)
@@ -335,7 +356,7 @@ class FuturesStrategy:
                 return entry_price + stop_distance
             elif entry_price >= ob_bottom:
                 # Entry inside OB
-                return ob_top + (ob_height * buffer_ratio)
+                return max(entry_price + stop_distance, ob_top + (ob_height * buffer_ratio))
             else:
                 # Entry below OB
                 return ob_top + (ob_height * buffer_ratio)

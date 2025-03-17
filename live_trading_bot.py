@@ -376,7 +376,7 @@ class LiveTradingBot:
                 self.time_sync = initialize_time_sync(api_key, api_secret)
 
         # Initialize Binance client
-        self.client = Client(api_key, api_secret)
+        self.client = Client(api_key, api_secret, tld='us')
 
         # Initialize data fetcher
         self.data_fetcher = BinanceDataFetcher()

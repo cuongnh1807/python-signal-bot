@@ -931,10 +931,10 @@ class LiveTradingBot:
 
             if tick_size:
                 # Round to tick size
-                return round(price / tick_size, 1) * tick_size
+                return round(round(price / tick_size) * tick_size, 2)
             else:
                 # Default to 5 decimals if no tick size found
-                return round(price, 1)
+                return round(price, 2)
 
         except Exception as e:
             logger.error(f"Error rounding price: {str(e)}")

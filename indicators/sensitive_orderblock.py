@@ -1,3 +1,4 @@
+import argparse
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -102,19 +103,15 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
     has_volume = 'volume' in df.columns
     if has_volume:
         df['volume_ma'] = df['volume'].rolling(volume_lookback).mean()
-        # Điền giá trị NaN bằng giá trị đầu tiên có sẵn
         df['volume_ma'] = df['volume_ma'].fillna(
             df['volume'].iloc[0] if len(df) > 0 else 0)
 
-    # Calculate ROC - tương tự PineScript: pc = (open - open[4]) / open[4] * 100
+    # Calculate ROC
     df['pc'] = (df['open'] - df['open'].shift(4)) / df['open'].shift(4) * 100
-
-    # Thêm ROC dựa trên giá đóng cửa để phát hiện tốt hơn
     df['pc_close'] = (df['close'] - df['close'].shift(4)) / \
         df['close'].shift(4) * 100
 
-    # Detect crossunders and crossovers - tương tự PineScript ta.crossunder và ta.crossover
-    # Sử dụng cả open và close để có nhiều tín hiệu hơn
+    # Detect crossunders and crossovers
     df['crossunder_open'] = (df['pc'].shift(1) > -sens) & (df['pc'] <= -sens)
     df['crossunder_close'] = (df['pc_close'].shift(
         1) > -sens) & (df['pc_close'] <= -sens)
@@ -137,23 +134,18 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
     for idx, row in df.iterrows():
         # Bearish order block creation
         if row['crossunder']:
-            # Giảm từ 5 xuống 3 để phát hiện nhiều OB hơn
             if last_cross_bearish is None or (idx - last_cross_bearish) > 3:
                 last_cross_bearish = idx
-                # Look back 4 to 15 bars for the first green candle (tương tự logic PineScript)
                 for i in range(4, 16):
                     lookback_idx = idx - i
                     if lookback_idx < 0:
                         break
-                    # Tìm nến xanh đầu tiên (bullish candle)
                     if df.loc[lookback_idx, 'close'] > df.loc[lookback_idx, 'open']:
-                        # Giảm điều kiện kích thước để phát hiện nhiều OB hơn
                         candle_size = abs(
                             df.loc[lookback_idx, 'close'] - df.loc[lookback_idx, 'open'])
-                        avg_size = df.loc[max(0, lookback_idx-10):lookback_idx, 'high'].mean(
-                        ) - df.loc[max(0, lookback_idx-10):lookback_idx, 'low'].mean()
-
-                        if candle_size > 0.15 * avg_size:  # Giảm xuống 0.15 thay vì 0.3
+                        avg_size = (df.loc[max(0, lookback_idx-10):lookback_idx, 'high'].mean() -
+                                    df.loc[max(0, lookback_idx-10):lookback_idx, 'low'].mean())
+                        if candle_size > 0.15 * avg_size:
                             ob = create_block(
                                 df, lookback_idx, 'bearish', original_index, has_volume)
                             bearish_obs.append(ob)
@@ -161,47 +153,40 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
 
         # Bullish order block creation
         if row['crossover']:
-            # Giảm từ 5 xuống 3
             if last_cross_bullish is None or (idx - last_cross_bullish) > 3:
                 last_cross_bullish = idx
-                # Look back 4 to 15 bars for the first red candle
                 for i in range(4, 16):
                     lookback_idx = idx - i
                     if lookback_idx < 0:
                         break
-                    # Tìm nến đỏ đầu tiên (bearish candle)
                     if df.loc[lookback_idx, 'close'] < df.loc[lookback_idx, 'open']:
-                        # Giảm điều kiện kích thước
                         candle_size = abs(
                             df.loc[lookback_idx, 'close'] - df.loc[lookback_idx, 'open'])
-                        avg_size = df.loc[max(0, lookback_idx-10):lookback_idx, 'high'].mean(
-                        ) - df.loc[max(0, lookback_idx-10):lookback_idx, 'low'].mean()
-
-                        if candle_size > 0.15 * avg_size:  # Giảm xuống 0.15
+                        avg_size = (df.loc[max(0, lookback_idx-10):lookback_idx, 'high'].mean() -
+                                    df.loc[max(0, lookback_idx-10):lookback_idx, 'low'].mean())
+                        if candle_size > 0.15 * avg_size:
                             ob = create_block(
                                 df, lookback_idx, 'bullish', original_index, has_volume)
                             bullish_obs.append(ob)
                         break
 
-        # Mitigation check (skip first bar due to shift)
+        # Mitigation check (skip first bar due to shift for "Close")
         if idx > 0:
             # Xác định giá trị sử dụng cho việc vô hiệu hóa order block dựa trên OBMitigationType
             if OBMitigationType == "Close":
                 bear_mitigation = df.loc[idx - 1, 'close']
                 bull_mitigation = df.loc[idx - 1, 'close']
             else:  # "Wick"
-                bear_mitigation = df.loc[idx - 1, 'high']
-                bull_mitigation = df.loc[idx - 1, 'low']
+                bear_mitigation = df.loc[idx, 'high']  # Current bar’s high
+                bull_mitigation = df.loc[idx, 'low']   # Current bar’s low
 
             # Remove mitigated bearish order blocks
             mitigated_bearish = []
             for i, ob in enumerate(bearish_obs):
                 if bear_mitigation > ob['top']:
-                    # Lưu thời gian vô hiệu hóa
-                    ob['mitigated_time'] = original_index[idx - 1]
+                    ob['mitigated_time'] = original_index[idx -
+                                                          1] if OBMitigationType == "Close" else original_index[idx]
                     mitigated_bearish.append(i)
-
-            # Xóa các order block đã bị vô hiệu hóa từ danh sách active
             bearish_obs = [ob for i, ob in enumerate(
                 bearish_obs) if i not in mitigated_bearish]
 
@@ -209,11 +194,9 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
             mitigated_bullish = []
             for i, ob in enumerate(bullish_obs):
                 if bull_mitigation < ob['bottom']:
-                    # Lưu thời gian vô hiệu hóa
-                    ob['mitigated_time'] = original_index[idx - 1]
+                    ob['mitigated_time'] = original_index[idx -
+                                                          1] if OBMitigationType == "Close" else original_index[idx]
                     mitigated_bullish.append(i)
-
-            # Xóa các order block đã bị vô hiệu hóa từ danh sách active
             bullish_obs = [ob for i, ob in enumerate(
                 bullish_obs) if i not in mitigated_bullish]
 
@@ -228,19 +211,16 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                 print(
                     f"Buy alert at bar {idx}: Price entered bullish OB from bar {ob['index']}")
 
-    # Giới hạn số lượng order block nhưng ưu tiên phát hiện bearish OB nhiều hơn
+    # Giới hạn số lượng order block
     if max_blocks > 0:
-        # Phân bổ lại tỷ lệ: 60% cho bearish, 40% cho bullish
         max_bearish = int(max_blocks * 0.6)
         max_bullish = max_blocks - max_bearish
-
-        # Sắp xếp theo độ quan trọng (thời gian gần đây và/hoặc độ mạnh)
         bearish_obs = sorted(bearish_obs, key=lambda x: (
             -x['strength'] if x['strength'] else 0, x['left_time']), reverse=True)[:max_bearish]
         bullish_obs = sorted(bullish_obs, key=lambda x: (
             -x['strength'] if x['strength'] else 0, x['left_time']), reverse=True)[:max_bullish]
 
-    # Sau khi xử lý tất cả các thanh, gộp các order block chồng lấp
+    # Gộp các order block chồng lấp
     if merge_threshold > 0:
         bearish_obs = merge_overlapping_order_blocks(
             bearish_obs, merge_threshold)
@@ -339,12 +319,18 @@ def plot_order_blocks(df, all_bull_obs, all_bear_obs):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Multi-ticker trading bot')
+    parser.add_argument(
+        '--symbol', type=str, default='SOLUSDT', help='Symbol to fetch data')
+    parser.add_argument(
+        '--interval', type=str, default='15m', help='Interval to fetch data')
+    args = parser.parse_args()
     fetchData = BinanceDataFetcher()
-    start_time = datetime.now() - timedelta(days=10)
+    start_time = datetime.now() - timedelta(days=7)
     data = fetchData.get_historical_klines(
-        "BTCUSDT", interval="15m", start_time=start_time)
+        args.symbol, interval=args.interval, start_time=start_time)
     order_blocks = detect_order_sensitive_blocks(
-        data, 0.4, merge_threshold=0.7)
+        data, 0.28, merge_threshold=0.7)
 
     # Tách order blocks theo hướng
     bullish_obs = [ob for ob in order_blocks if ob['direction'] == 'bullish']

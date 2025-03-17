@@ -755,7 +755,8 @@ class LiveTradingBot:
 
             # Get updated timestamp for the next request
             time_params = self.time_sync.get_timestamp_with_recvwindow()
-
+            quantity = self._round_step_size(
+                order['position_size'] / order['entry_price'])
             # Determine order type and parameters
             if order['entry_type'] == 'MARKET':
                 # Place market order
@@ -763,8 +764,9 @@ class LiveTradingBot:
                     symbol=self.symbol,
                     side='BUY' if order['side'] == 'LONG' else 'SELL',
                     type='MARKET',
-                    quoteOrderQty=self._round_step_size(
-                        order['position_size']),
+                    timeInForce='GTC',
+                    quantity=quantity,
+
                     **time_params  # Add timestamp and recvWindow
                 )
 
@@ -794,8 +796,7 @@ class LiveTradingBot:
                     side='BUY' if order['side'] == 'LONG' else 'SELL',
                     type='LIMIT',
                     timeInForce='GTC',
-                    quoteOrderQty=self._round_step_size(
-                        order['position_size']),
+                    quantity=quantity,
                     price=self._round_tick_size(order['entry_price']),
                     **time_params  # Add timestamp and recvWindow
                 )

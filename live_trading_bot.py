@@ -376,7 +376,7 @@ class LiveTradingBot:
                 self.time_sync = initialize_time_sync(api_key, api_secret)
 
         # Initialize Binance client
-        self.client = Client(api_key, api_secret, tld='us')
+        self.client = Client(api_key, api_secret)
 
         # Initialize data fetcher
         self.data_fetcher = BinanceDataFetcher()
@@ -1305,7 +1305,7 @@ class LiveTradingBot:
         while self.running:
             try:
                 self._check_order_status()
-                time.sleep(60 * 5)  # Check every 5 seconds
+                time.sleep(60 * 5)  # Check every 10 mi
             except Exception as e:
                 error_msg = f"Error in status check loop: {str(e)}"
                 logger.error(error_msg)

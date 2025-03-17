@@ -18,7 +18,7 @@ class BinanceDataFetcher:
             api_secret = os.getenv('BINANCE_API_SECRET')
 
         # Initialize client with API credentials
-        self.client = Client(api_key, api_secret, tld='us')
+        self.client = Client(api_key, api_secret)
 
         # Use provided time synchronizer or get global one
         if time_synchronizer:

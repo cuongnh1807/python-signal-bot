@@ -724,7 +724,9 @@ class LiveTradingBot:
 
                 # Send Telegram notification
                 self.telegram.notify_order_created(order)
-
+                print("quantity: ", self._round_step_size(
+                    order['position_size'] / order['entry_price']))
+                print(order['position_size'], order['entry_price'])
                 # Place order on exchange
                 if not self.test_mode:
                     self._place_order_on_exchange(order)
@@ -757,6 +759,7 @@ class LiveTradingBot:
             time_params = self.time_sync.get_timestamp_with_recvwindow()
             quantity = self._round_step_size(
                 order['position_size'] / order['entry_price'])
+
             # Determine order type and parameters
             if order['entry_type'] == 'MARKET':
                 # Place market order
@@ -903,10 +906,10 @@ class LiveTradingBot:
                     precision = len(str(step_size).split('.')[-1].rstrip('0'))
 
                 # Round to precision
-                return round(quantity - (quantity % step_size), precision if precision < 2 else 1)
+                return round(quantity - (quantity % step_size), precision if precision < 2 else 2)
             else:
                 # Default to 5 decimals if no step size found
-                return round(quantity, 1)
+                return round(quantity, 2)
 
         except Exception as e:
             logger.error(f"Error rounding quantity: {str(e)}")

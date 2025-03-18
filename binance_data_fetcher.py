@@ -10,15 +10,15 @@ logger = logging.getLogger(__name__)
 
 
 class BinanceDataFetcher:
-    def __init__(self, api_key=None, api_secret=None, time_synchronizer=None):
+    def __init__(self, client=None, time_synchronizer=None):
         # Load environment variables if needed
-        if not api_key or not api_secret:
+        if not client:
             load_dotenv()
-            api_key = os.getenv('BINANCE_API_KEY')
-            api_secret = os.getenv('BINANCE_API_SECRET')
+            self.client = Client(os.getenv(
+                'BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
         # Initialize client with API credentials
-        self.client = Client(api_key, api_secret)
+        self.client = client
 
         # Use provided time synchronizer or get global one
         if time_synchronizer:
@@ -28,7 +28,8 @@ class BinanceDataFetcher:
                 self.time_sync = get_time_synchronizer()
             except RuntimeError:
                 # Initialize if not already done
-                self.time_sync = initialize_time_sync(api_key, api_secret)
+                self.time_sync = initialize_time_sync(
+                    os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
     def get_historical_klines(self, symbol: str, interval: str, start_time: datetime, limit: int = 1000) -> pd.DataFrame:
         """Fetch historical klines/candlestick data with proper time synchronization"""

@@ -13,7 +13,8 @@ import sys
 import requests
 import asyncio
 from binance_data_fetcher import BinanceDataFetcher
-
+from binance.helpers import round_step_size
+from helpers.price import adjust_precision
 from binance import AsyncClient, BinanceSocketManager
 
 # Import strategy components
@@ -23,6 +24,7 @@ from binance.exceptions import BinanceAPIException
 
 from strategy import calculate_rsi
 from time_synchronizer import initialize_time_sync, get_time_synchronizer
+
 
 # Configure logging
 logging.basicConfig(
@@ -304,8 +306,7 @@ class LiveTradingBot:
     """
 
     def __init__(self,
-                 api_key: str,
-                 api_secret: str,
+                 client: Client,
                  symbol: str,
                  interval: str = '15m',
                  max_risk_per_trade: float = 0.02,
@@ -317,7 +318,7 @@ class LiveTradingBot:
                  test_mode: bool = True,
                  telegram: TelegramNotifier = None,
                  time_synchronizer=None,
-                 # EMA Crossover params
+                 symbol_precision: Dict = None,
                  fast_ema: int = 8,
                  slow_ema: int = 21,
                  volume_threshold: float = 2.0):
@@ -342,8 +343,7 @@ class LiveTradingBot:
         volume_threshold: Volume threshold for crossover strategy
         max_distance_to_current_price: Maximum distance from current price for placing orders
         """
-        self.api_key = api_key
-        self.api_secret = api_secret
+
         self.symbol = symbol
         self.interval = interval
         self.max_risk_per_trade = max_risk_per_trade
@@ -352,6 +352,7 @@ class LiveTradingBot:
         self.min_setup_quality = min_setup_quality
         self.min_volume_ratio = min_volume_ratio
         self.test_mode = test_mode
+        self.symbol_precision = symbol_precision
 
         # EMA Crossover parameters
         self.fast_ema = fast_ema
@@ -365,6 +366,7 @@ class LiveTradingBot:
         # Support & resistance levels
         self.support_levels = []
         self.resistance_levels = []
+        self.ordered_signals = set()
 
         # Initialize or use provided time synchronizer
         if time_synchronizer:
@@ -374,13 +376,14 @@ class LiveTradingBot:
                 self.time_sync = get_time_synchronizer()
             except RuntimeError:
                 # Initialize if not already done
-                self.time_sync = initialize_time_sync(api_key, api_secret)
+                self.time_sync = initialize_time_sync(
+                    os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
         # Initialize Binance client
-        self.client = Client(api_key, api_secret)
+        self.client = client
 
         # Initialize data fetcher
-        self.data_fetcher = BinanceDataFetcher()
+        self.data_fetcher = BinanceDataFetcher(client=client)
 
         # Lấy số dư USDT từ tài khoản Futures
         self.initial_capital = self._get_usdt_balance()
@@ -672,12 +675,13 @@ class LiveTradingBot:
             if new_orders:
                 # Create signatures for new orders for later comparison
                 for order in new_orders:
+                    print("symbol_precision", self.symbol_precision)
+
                     # Create a unique signature based on key order properties
-                    signature = f"{order['side']}_{self._round_tick_size(order['entry_price']):.2f}"
+                    signature = f"{order['side']}_{round_step_size(order['entry_price'], float(self.symbol_precision['tickSize'])):.2f}"
                     new_order_signatures.add(signature)
                     order['signature'] = signature
 
-                logger.info(f"Generated {len(new_orders)} new orders")
                 self._process_new_orders(new_orders)
             else:
                 logger.info("No new orders generated")
@@ -700,7 +704,7 @@ class LiveTradingBot:
         """Process new orders and place them on the exchange"""
         for order in new_orders:
             try:
-                if order['signature'] in self.active_orders:
+                if order['signature'] in self.ordered_signals:
                     logger.info(
                         f"Skipping {order['side']} order: {order['signature']} already exists")
                     continue
@@ -725,18 +729,15 @@ class LiveTradingBot:
 
                 # Send Telegram notification
                 self.telegram.notify_order_created(order)
-                print("quantity: ", self._round_step_size(
-                    order['position_size'] / order['entry_price']))
-                print(order['position_size'], order['entry_price'])
                 # Place order on exchange
                 if not self.test_mode:
                     self._place_order_on_exchange(order)
+                    self.ordered_signals.add(order['signature'])
                 else:
                     logger.info(
                         f"TEST MODE: Would place {order['side']} order at {order['entry_price']}")
 
                     # In test mode, simulate order placement
-                    self.active_orders[order['signature']] = order
 
             except Exception as e:
                 error_msg = f"Error processing order: {str(e)}"
@@ -758,8 +759,8 @@ class LiveTradingBot:
 
             # Get updated timestamp for the next request
             time_params = self.time_sync.get_timestamp_with_recvwindow()
-            quantity = self._round_step_size(
-                order['position_size'] / order['entry_price'])
+            quantity = adjust_precision(
+                order['position_size'] / order['entry_price'], self.symbol_precision['quantityPrecision'])
 
             # Determine order type and parameters
             if order['entry_type'] == 'MARKET':
@@ -768,7 +769,6 @@ class LiveTradingBot:
                     symbol=self.symbol,
                     side='BUY' if order['side'] == 'LONG' else 'SELL',
                     type='MARKET',
-                    timeInForce='GTC',
                     quantity=quantity,
 
                     **time_params  # Add timestamp and recvWindow
@@ -799,9 +799,9 @@ class LiveTradingBot:
                     symbol=self.symbol,
                     side='BUY' if order['side'] == 'LONG' else 'SELL',
                     type='LIMIT',
-                    timeInForce='GTC',
                     quantity=quantity,
-                    price=self._round_tick_size(order['entry_price']),
+                    price=round_step_size(order['entry_price'], float(
+                        self.symbol_precision['tickSize'])),
                     **time_params  # Add timestamp and recvWindow
                 )
 
@@ -827,8 +827,10 @@ class LiveTradingBot:
         try:
             # Calculate quantity
             quantity = order['position_size'] / order['actual_entry_price']
-            quantity = self._round_step_size(quantity)
-            stopPrice = self._round_tick_size(order['stop_loss'])
+            quantity = adjust_precision(
+                quantity, self.symbol_precision['quantityPrecision'])
+            stopPrice = round_step_size(
+                order['stop_loss'], float(self.symbol_precision['tickSize']))
             print("stopPrice", stopPrice)
             # Place stop loss order
             response = self.client.futures_create_order(
@@ -854,7 +856,8 @@ class LiveTradingBot:
         try:
             # Calculate quantity
             quantity = order['position_size'] / order['actual_entry_price']
-            quantity = self._round_step_size(quantity)
+            quantity = adjust_precision(
+                quantity, self.symbol_precision['quantityPrecision'])
 
             # Place take profit orders
             tp_order_ids = {}
@@ -862,7 +865,8 @@ class LiveTradingBot:
             # Split quantity among take profit levels
             tp_levels = len(order['take_profit'])
             qty_per_level = quantity / tp_levels
-            qty_per_level = self._round_step_size(qty_per_level)
+            qty_per_level = adjust_precision(
+                qty_per_level, self.symbol_precision['quantityPrecision'])
 
             for tp_name, tp_price in order['take_profit'].items():
                 tp_price = self._round_tick_size(tp_price)
@@ -885,62 +889,6 @@ class LiveTradingBot:
             error_msg = f"Error placing take profits: {str(e)}"
             logger.error(error_msg)
             self.telegram.notify_error(error_msg)
-
-    def _round_step_size(self, quantity: float) -> float:
-        """Round quantity to valid step size"""
-        try:
-            # Get symbol info
-
-            # Find the quantity filter
-            filters = self.tickerInfo['filters']
-            step_size = None
-
-            for f in filters:
-                if f['filterType'] == 'LOT_SIZE':
-                    step_size = float(f['stepSize'])
-                    break
-
-            if step_size:
-                # Calculate precision
-                precision = 0
-                if step_size < 1:
-                    precision = len(str(step_size).split('.')[-1].rstrip('0'))
-
-                # Round to precision
-                return round(quantity - (quantity % step_size), precision if precision < 2 else 2)
-            else:
-                # Default to 5 decimals if no step size found
-                return round(quantity, 2)
-
-        except Exception as e:
-            logger.error(f"Error rounding quantity: {str(e)}")
-            # Default to 5 decimals
-            return round(quantity, 2)
-
-    def _round_tick_size(self, price: float) -> float:
-        """Round price to valid tick size"""
-        try:
-
-            # Find the price filter
-            filters = self.tickerInfo['filters']
-            tick_size = None
-
-            for f in filters:
-                if f['filterType'] == 'PRICE_FILTER':
-                    tick_size = float(f['tickSize'])
-                    break
-
-            if tick_size:
-                # Round to tick size
-                return round(round(price / tick_size) * tick_size, 2)
-            else:
-                # Default to 5 decimals if no tick size found
-                return round(price, 2)
-
-        except Exception as e:
-            logger.error(f"Error rounding price: {str(e)}")
-            # Default to 5 decimals
-            return round(price, 2)
 
     def _check_order_status(self):
         """Check status of active orders and update accordingly"""
@@ -1166,7 +1114,7 @@ class LiveTradingBot:
                     continue
 
                 # Create signature for this order
-                order_signature = f"{order['side']}_{self._round_tick_size(order['entry_price']):.2f}"
+                order_signature = f"{order['side']}_{round_step_size(order['entry_price'], float(self.symbol_precision['tickSize'])):.2f}"
 
                 # If this order signature is not in the new recommendations, cancel it
                 if order_signature not in new_order_signatures:
@@ -1228,7 +1176,8 @@ class LiveTradingBot:
         """Khởi động WebSocket connection với asyncio"""
         try:
             # Khởi tạo AsyncClient
-            client = await AsyncClient.create(self.api_key, self.api_secret)
+            client = await AsyncClient.create(
+                os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
             # Khởi tạo BinanceSocketManager
             bsm = BinanceSocketManager(client)

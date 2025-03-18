@@ -142,3 +142,7 @@ def calculate_price_momentum(data: pd.DataFrame, lookback: int = 20) -> dict:
         'volume_momentum': calculate_volume_weighted_momentum(data.tail(lookback)),
         'trend_strength': calculate_trend_strength(data.tail(lookback))
     }
+
+
+def adjust_precision(value, precision):
+    return round(value, precision)

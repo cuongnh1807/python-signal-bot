@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Dict, List
 from live_trading_bot import LiveTradingBot, TelegramNotifier
+from binance.client import Client
 # from telegram_notifier import TelegramNotifier
 
 # Cấu hình logging
@@ -16,6 +17,19 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def get_symbol_precision(client, symbols):
+    info = client.futures_exchange_info()
+    objs = {}
+    for item in info['symbols']:
+        if item['symbol'] in symbols:
+            objs[item['symbol']] = {
+                'pricePrecision': item['pricePrecision'],
+                'quantityPrecision': item['quantityPrecision'],
+                'tickSize': item['filters'][0]['tickSize']
+            }
+    return objs
 
 
 class MultiTickerManager:
@@ -58,13 +72,16 @@ class MultiTickerManager:
             )
 
             # Cấu hình chung
-            self.api_key = os.environ.get('BINANCE_API_KEY')
             self.api_secret = os.environ.get('BINANCE_API_SECRET')
             self.test_mode = os.environ.get(
                 'TEST_MODE', 'true').lower() == 'true'
+            self.client = Client(os.environ.get(
+                'BINANCE_API_KEY'), os.environ.get('BINANCE_API_SECRET'))
 
             # Cấu hình cho từng ticker
             self.ticker_configs = config.get('tickers', [])
+            self.symbol_precision = get_symbol_precision(
+                self.client, [ticker_config.get('symbol') for ticker_config in self.ticker_configs])
 
             logger.info(
                 f"Loaded configuration with {len(self.ticker_configs)} tickers")
@@ -74,7 +91,7 @@ class MultiTickerManager:
             raise
 
     def start_all(self):
-        """Khởi động tất cả các bot giao dịch"""
+
         for ticker_config in self.ticker_configs:
             try:
                 symbol = ticker_config.get('symbol')
@@ -82,7 +99,6 @@ class MultiTickerManager:
                     logger.warning("Skipping ticker config without symbol")
                     continue
 
-                # Kiểm tra xem bot đã tồn tại chưa
                 if symbol in self.bots:
                     logger.warning(
                         f"Bot for {symbol} already running, skipping")
@@ -90,9 +106,9 @@ class MultiTickerManager:
 
                 # Tạo bot mới
                 bot = LiveTradingBot(
-                    api_key=self.api_key,
-                    api_secret=self.api_secret,
+                    client=self.client,
                     symbol=symbol,
+                    symbol_precision=self.symbol_precision[symbol],
                     interval=ticker_config.get('interval', '15m'),
                     max_risk_per_trade=ticker_config.get(
                         'max_risk_per_trade', 0.02),
@@ -154,9 +170,9 @@ class MultiTickerManager:
 
                 # Tạo bot mới
                 bot = LiveTradingBot(
-                    api_key=self.api_key,
-                    api_secret=self.api_secret,
+                    client=self.client,
                     symbol=symbol,
+                    symbol_precision=self.symbol_precision[symbol],
                     interval=ticker_config.get('interval', '15m'),
                     max_risk_per_trade=ticker_config.get(
                         'max_risk_per_trade', 0.02),

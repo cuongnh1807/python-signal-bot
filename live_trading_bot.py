@@ -802,6 +802,7 @@ class LiveTradingBot:
                     side='BUY' if order['side'] == 'LONG' else 'SELL',
                     type='LIMIT',
                     quantity=quantity,
+                    timeInForce='GTC',
                     price=round_step_size(order['entry_price'], float(
                         self.symbol_precision['tickSize'])),
                     **time_params  # Add timestamp and recvWindow
@@ -833,7 +834,6 @@ class LiveTradingBot:
                 quantity, self.symbol_precision['quantityPrecision'])
             stopPrice = round_step_size(
                 order['stop_loss'], float(self.symbol_precision['tickSize']))
-            print("stopPrice", stopPrice)
             # Place stop loss order
             response = self.client.futures_create_order(
                 symbol=self.symbol,

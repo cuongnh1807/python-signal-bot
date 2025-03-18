@@ -133,7 +133,7 @@ class TelegramNotifier:
         # Send to signals topic if configured, otherwise to main chat
         self.send_message(message, topic_id=self.signals_topic_id)
 
-    def notify_order_created(self, order: Dict):
+    def notify_order_created(self, order: Dict, current_price: float):
         """Send notification about a new order to orders topic"""
         if not self.enabled:
             return
@@ -159,12 +159,14 @@ class TelegramNotifier:
 
         message = (
             f"🔔 <b>New {side} Order Created</b>\n\n"
+            f"Current Price: <b>${current_price:.2f}</b>\n"
             f"Symbol: <b>{symbol}</b>\n"
             f"Type: <b>{entry_type}</b>\n"
             f"Setup: <b>{setup_type}</b> (Quality: {setup_quality:.1f}%)\n"
             f"Entry: <b>${entry_price:.2f}</b>\n"
             f"Stop Loss: <b>${stop_loss:.2f}</b>\n"
             f"Risk-Reward (TP2): <b>{rr:.2f}</b>\n"
+            f"Take Profit : <b>${order['take_profit'].get('tp2', 0):.2f}</b>\n"
             f"Volume Ratio: <b>{volume_ratio:.1f}x</b>\n"
             f"Position Size: <b>${position_size:.2f}</b> ({leverage}x)\n"
             f"Margin: <b>${margin:.2f}</b>"
@@ -728,7 +730,7 @@ class LiveTradingBot:
                     (order['entry_price'] / self.current_price) - 1) * 100
 
                 # Send Telegram notification
-                self.telegram.notify_order_created(order)
+                self.telegram.notify_order_created(order, self.current_price)
                 # Place order on exchange
                 if not self.test_mode:
                     self._place_order_on_exchange(order)

@@ -450,7 +450,7 @@ class LiveTradingBot:
                 if self.telegram:
                     self.telegram.notify_error(warning_msg)
 
-            return usdt_balance
+            return usdt_balance if usdt_balance < 650 else 650
 
         except Exception as e:
             error_msg = f"Error getting USDT balance: {str(e)}"

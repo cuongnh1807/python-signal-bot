@@ -871,7 +871,8 @@ class LiveTradingBot:
                 qty_per_level, self.symbol_precision['quantityPrecision'])
 
             for tp_name, tp_price in order['take_profit'].items():
-                tp_price = self._round_tick_size(tp_price)
+                tp_price = round_step_size(tp_price, float(
+                    self.symbol_precision['tickSize']))
                 print("tp_price", tp_price)
                 response = self.client.futures_create_order(
                     symbol=self.symbol,
@@ -1154,7 +1155,7 @@ class LiveTradingBot:
             order = self.active_orders[order_id]
 
             # Create signature for this order
-            order_signature = f"{order['side']}_{self._round_tick_size(order['entry_price']):.2f}"
+            order_signature = f"{order['side']}_{round_step_size(order['entry_price'], float(self.symbol_precision['tickSize'])):.2f}"
 
             # If this order signature is not in the new recommendations, cancel it
             if order_signature not in new_order_signatures:

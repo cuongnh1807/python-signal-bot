@@ -7,7 +7,7 @@
       "leverage": 10,
       "window_size": 300,
       "min_setup_quality": 70.0,
-      "min_volume_ratio": 3.0,
+      "min_volume_ratio": 3,
       "max_distance_to_current_price": 2
     },
     {

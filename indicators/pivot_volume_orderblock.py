@@ -147,11 +147,15 @@ def detect_pivot_volume_order_blocks(
                     'mitigated': False,
                     'mitigated_time': None,
                     'atr': df['atr'].iloc[k],
-                    'height_atr_ratio': (top - bottom) / df['atr'].iloc[k]
+                    'height_atr_ratio': (top - bottom) / df['atr'].iloc[k],
+                    'volume': 0
                 }
 
                 # Calculate strength if volume is available
                 if has_volume:
+                    vol = sum(df.at[df.index[i], 'volume']
+                              for i in [k, k+1] if i < len(df))
+                    ob['volume'] = vol
                     volume_k = df['volume'].iloc[k]
                     volume_ma_k = df['volume_ma'].iloc[k]
                     volume_ratio = volume_k / volume_ma_k if volume_ma_k > 0 else 1
@@ -189,11 +193,15 @@ def detect_pivot_volume_order_blocks(
                     'mitigated': False,
                     'mitigated_time': None,
                     'atr': df['atr'].iloc[k],
-                    'height_atr_ratio': (top - bottom) / df['atr'].iloc[k]
+                    'height_atr_ratio': (top - bottom) / df['atr'].iloc[k],
+                    'volume': 0
                 }
 
                 # Calculate strength if volume is available
                 if has_volume:
+                    vol = sum(df.at[df.index[i], 'volume']
+                              for i in [k, k+1] if i < len(df))
+                    ob['volume'] = vol
                     volume_k = df['volume'].iloc[k]
                     volume_ma_k = df['volume_ma'].iloc[k]
                     volume_ratio = volume_k / volume_ma_k if volume_ma_k > 0 else 1
@@ -206,7 +214,8 @@ def detect_pivot_volume_order_blocks(
 
                     # Only include OB if its strength meets the threshold
                     if ob['strength'] >= strength_threshold:
-                        bear_obs.insert(0, ob)  # Add to the front of the list
+                        # Add to the front of the list
+                        bear_obs.insert(0, ob)
                         # Mark in DataFrame
                         df.at[current_time, 'bear_ob'] = top
 

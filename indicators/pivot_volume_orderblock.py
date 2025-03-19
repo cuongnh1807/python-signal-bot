@@ -6,6 +6,10 @@ import pandas as pd
 import numpy as np
 from binance_data_fetcher import BinanceDataFetcher
 from datetime import datetime, timedelta
+from binance.client import Client
+
+import pandas as pd
+import numpy as np
 
 
 def detect_pivot_volume_order_blocks(
@@ -16,11 +20,12 @@ def detect_pivot_volume_order_blocks(
     mitigation_method='Close',
     volume_lookback=20,
     atr_period=14,
-    min_height_multiplier=0.7,
-    use_market_structure=True
+    min_height_multiplier=0.5,
+    use_market_structure=True,
+    strength_threshold=70
 ):
     """
-    Detect Order Blocks in OHLCV data using pivot volume and market structure.
+    Detect Order Blocks and only include those that are strong enough to potentially cause rejection.
 
     Parameters:
         df (pd.DataFrame): DataFrame containing OHLCV data with datetime index.
@@ -32,23 +37,26 @@ def detect_pivot_volume_order_blocks(
         atr_period (int): Period for ATR calculation.
         min_height_multiplier (float): Minimum height as multiplier of ATR.
         use_market_structure (bool): Use market structure for OB direction.
+        strength_threshold (int): Minimum strength score (0-100) for an OB to be included.
 
     Returns:
         tuple: (Updated DataFrame with OB signals, list of active order blocks).
     """
 
+    # Make a copy of the DataFrame to avoid modifying the original
     df = df.copy()
 
-    # Check if volume data is available
+    # Check if volume data is available in the DataFrame
     has_volume = 'volume' in df.columns
 
     # Calculate volume moving average if volume data exists
     if has_volume:
         df['volume_ma'] = df['volume'].rolling(volume_lookback).mean()
+        # Fill NaN values with the first volume value or 0 if DataFrame is empty
         df['volume_ma'] = df['volume_ma'].fillna(
             df['volume'].iloc[0] if len(df) > 0 else 0)
 
-    # Calculate ATR
+    # Calculate True Range (TR) and Average True Range (ATR)
     df['tr'] = np.maximum(
         df['high'] - df['low'],
         np.maximum(
@@ -57,28 +65,29 @@ def detect_pivot_volume_order_blocks(
         )
     )
     df['atr'] = df['tr'].rolling(atr_period).mean()
-    df['atr'] = df['atr'].fillna(df['tr'].mean())
+    df['atr'] = df['atr'].fillna(df['tr'].mean())  # Fill NaN with mean TR
 
-    # Calculate upper and lower bounds
+    # Calculate rolling highs and lows for pivot detection
     df['upper'] = df['high'].rolling(length).max()
     df['lower'] = df['low'].rolling(length).min()
 
     # Add market structure (os) if enabled
     if use_market_structure:
-        df['os'] = 0  # Initialize
+        df['os'] = 0  # 0 for bearish, 1 for bullish
         for i in range(length, len(df)):
             high_prev = df['high'].iloc[i - length]
             low_prev = df['low'].iloc[i - length]
             upper = df['upper'].iloc[i]
             lower = df['lower'].iloc[i]
             if high_prev > upper:
-                df.loc[df.index[i], 'os'] = 0  # Bearish
+                df.loc[df.index[i], 'os'] = 0  # Bearish structure
             elif low_prev < lower:
-                df.loc[df.index[i], 'os'] = 1  # Bullish
+                df.loc[df.index[i], 'os'] = 1  # Bullish structure
             else:
+                # Retain previous state
                 df.loc[df.index[i], 'os'] = df['os'].iloc[i - 1]
 
-    # Precompute pivot volume highs
+    # Identify pivot volume highs if volume data is available
     df['phv'] = False
     if has_volume:
         for k in range(length, len(df) - length):
@@ -86,7 +95,7 @@ def detect_pivot_volume_order_blocks(
                     df['volume'].iloc[k] > df['volume'].iloc[k + 1:k + length + 1].max()):
                 df.at[df.index[k], 'phv'] = True
 
-    # Calculate mitigation targets
+    # Define mitigation targets based on the specified method
     if mitigation_method == 'Close':
         df['target_bull'] = df['close'].rolling(length).min()
         df['target_bear'] = df['close'].rolling(length).max()
@@ -94,37 +103,40 @@ def detect_pivot_volume_order_blocks(
         df['target_bull'] = df['low'].rolling(length).min()
         df['target_bear'] = df['high'].rolling(length).max()
 
-    # Initialize columns for signals
+    # Initialize DataFrame columns for OB signals and mitigation flags
     df['bull_ob'] = np.nan
     df['bear_ob'] = np.nan
     df['mitigated_bull'] = False
     df['mitigated_bear'] = False
 
-    # Initialize lists for order blocks
+    # Initialize lists to store bullish and bearish order blocks
     bull_obs = []
     bear_obs = []
 
-    # Detect order blocks
+    # Main loop to detect OBs and filter based on strength
     for i in range(2 * length, len(df)):
         current_time = df.index[i]
 
-        # Check for order blocks if volume pivot high exists at i - length
+        # Check for pivot volume high at bar k (i - length)
         if has_volume and df['phv'].iloc[i - length]:
-            k = i - length  # Bar where pivot high occurred
+            k = i - length  # Index of the pivot bar
+            # Determine OB direction based on market structure or price movement
             direction = 'bullish' if df['os'].iloc[i] == 1 else 'bearish' if use_market_structure else (
                 'bullish' if df['close'].iloc[i] > df['close'].iloc[i -
                                                                     length] else 'bearish'
             )
 
             if direction == 'bullish':
-                # Bullish OB coordinates per Pine Script
-                top = (df['high'].iloc[k] + df['low'].iloc[k]) / 2  # hl2
+                # Define bullish OB coordinates
+                top = (df['high'].iloc[k] + df['low'].iloc[k]) / \
+                    2  # Midpoint (hl2)
                 bottom = df['low'].iloc[k]
                 height = top - bottom
                 min_height = df['atr'].iloc[k] * min_height_multiplier
                 if height < min_height:
-                    top = bottom + min_height
+                    top = bottom + min_height  # Adjust top to ensure minimum height
 
+                # Create OB dictionary
                 ob = {
                     'direction': 'bullish',
                     'left_time': df.index[k],
@@ -137,23 +149,36 @@ def detect_pivot_volume_order_blocks(
                     'atr': df['atr'].iloc[k],
                     'height_atr_ratio': (top - bottom) / df['atr'].iloc[k]
                 }
-                if has_volume:
-                    ob['volume'] = df['volume'].iloc[k]
-                    if df['volume_ma'].iloc[k] > 0:
-                        ob['strength'] = min(
-                            int((ob['volume'] / df['volume_ma'].iloc[k]) * 100), 100)
-                bull_obs.insert(0, ob)
-                df.at[current_time, 'bull_ob'] = bottom
 
-            else:  # Bearish
-                # Bearish OB coordinates per Pine Script
+                # Calculate strength if volume is available
+                if has_volume:
+                    volume_k = df['volume'].iloc[k]
+                    volume_ma_k = df['volume_ma'].iloc[k]
+                    volume_ratio = volume_k / volume_ma_k if volume_ma_k > 0 else 1
+                    height_ratio = ob['height'] / \
+                        ob['atr'] if ob['atr'] > 0 else 1
+                    # Strength is a combination of volume and height ratios
+                    volume_strength = min(volume_ratio * 50, 50)
+                    height_strength = min(height_ratio * 50, 50)
+                    ob['strength'] = int(volume_strength + height_strength)
+
+                    # Only include OB if its strength meets the threshold
+                    if ob['strength'] >= strength_threshold:
+                        bull_obs.insert(0, ob)  # Add to the front of the list
+                        # Mark in DataFrame
+                        df.at[current_time, 'bull_ob'] = bottom
+
+            else:  # Bearish OB
+                # Define bearish OB coordinates
                 top = df['high'].iloc[k]
-                bottom = (df['high'].iloc[k] + df['low'].iloc[k]) / 2  # hl2
+                bottom = (df['high'].iloc[k] + df['low'].iloc[k]
+                          ) / 2  # Midpoint (hl2)
                 height = top - bottom
                 min_height = df['atr'].iloc[k] * min_height_multiplier
                 if height < min_height:
-                    bottom = top - min_height
+                    bottom = top - min_height  # Adjust bottom to ensure minimum height
 
+                # Create OB dictionary
                 ob = {
                     'direction': 'bearish',
                     'left_time': df.index[k],
@@ -166,19 +191,30 @@ def detect_pivot_volume_order_blocks(
                     'atr': df['atr'].iloc[k],
                     'height_atr_ratio': (top - bottom) / df['atr'].iloc[k]
                 }
-                if has_volume:
-                    ob['volume'] = df['volume'].iloc[k]
-                    if df['volume_ma'].iloc[k] > 0:
-                        ob['strength'] = min(
-                            int((ob['volume'] / df['volume_ma'].iloc[k]) * 100), 100)
-                bear_obs.insert(0, ob)
-                df.at[current_time, 'bear_ob'] = top
 
-        # Mitigation checks
+                # Calculate strength if volume is available
+                if has_volume:
+                    volume_k = df['volume'].iloc[k]
+                    volume_ma_k = df['volume_ma'].iloc[k]
+                    volume_ratio = volume_k / volume_ma_k if volume_ma_k > 0 else 1
+                    height_ratio = ob['height'] / \
+                        ob['atr'] if ob['atr'] > 0 else 1
+                    # Strength is a combination of volume and height ratios
+                    volume_strength = min(volume_ratio * 50, 50)
+                    height_strength = min(height_ratio * 50, 50)
+                    ob['strength'] = int(volume_strength + height_strength)
+
+                    # Only include OB if its strength meets the threshold
+                    if ob['strength'] >= strength_threshold:
+                        bear_obs.insert(0, ob)  # Add to the front of the list
+                        # Mark in DataFrame
+                        df.at[current_time, 'bear_ob'] = top
+
+        # Check for OB mitigation
         target_bull = df['target_bull'].iloc[i]
         target_bear = df['target_bear'].iloc[i]
 
-        # Mitigate bullish OBs
+        # Mitigate bullish OBs if price drops below the bottom
         for ob in bull_obs[:]:
             if target_bull < ob['bottom']:
                 ob['mitigated'] = True
@@ -186,7 +222,7 @@ def detect_pivot_volume_order_blocks(
                 bull_obs.remove(ob)
                 df.at[current_time, 'mitigated_bull'] = True
 
-        # Mitigate bearish OBs
+        # Mitigate bearish OBs if price rises above the top
         for ob in bear_obs[:]:
             if target_bear > ob['top']:
                 ob['mitigated'] = True
@@ -194,10 +230,11 @@ def detect_pivot_volume_order_blocks(
                 bear_obs.remove(ob)
                 df.at[current_time, 'mitigated_bear'] = True
 
-        # Limit the number of active OBs
+        # Limit the number of active OBs in the lists
         bull_obs = bull_obs[:bull_ext_last]
         bear_obs = bear_obs[:bear_ext_last]
 
+    # Return the updated DataFrame and combined list of active OBs
     return df, bull_obs + bear_obs
 
 
@@ -256,7 +293,8 @@ if __name__ == "__main__":
     parser.add_argument(
         '--interval', type=str, default='15m', help='Interval to fetch data')
     args = parser.parse_args()
-    fetchData = BinanceDataFetcher()
+    client = Client()
+    fetchData = BinanceDataFetcher(client=client)
     start_time = datetime.now() - timedelta(days=7)
     data = fetchData.get_historical_klines(
         args.symbol, interval=args.interval, start_time=start_time)

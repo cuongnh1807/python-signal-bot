@@ -498,35 +498,32 @@ def analyze_trading_setup(data, lookback_volume: int = 30):
         if ob_direction == "bullish":  # Bullish OB
             if current_trend == 'DOWNTREND':
                 if volume_analysis['analysis']['pressure'] in ['Strong Buying', 'Moderate Buying']:
-                    # Break of Structure Long (Counter-trend)
-                    setup_type = 'LONG_BOS'
+                    setup_type = "BOS"  # Break of Structure
                     setup_strength = 'Strong'
                 else:
-                    setup_type = 'LONG_CHoCH'  # Change of Character Long
+                    setup_type = "CHoCH"  # Change of Character
                     setup_strength = 'Moderate'
             else:  # UPTREND
                 if volume_analysis['analysis']['pressure'] in ['Strong Buying Climax', 'Moderate Buying Climax']:
-                    setup_type = 'LONG_CONTINUATION'  # Continuation Long
+                    setup_type = "CONTINUATION"  # Strong Continuation
                     setup_strength = 'Strong'
                 else:
-                    setup_type = 'LONG_PULLBACK'  # Pullback in Uptrend
+                    setup_type = "CONTINUATION"  # Pullback treated as Continuation
                     setup_strength = 'Moderate'
-
         else:  # Bearish OB
             if current_trend == 'UPTREND':
                 if volume_analysis['analysis']['pressure'] in ['Strong Selling Climax', 'Moderate Selling Climax']:
-                    # Break of Structure Short (Counter-trend)
-                    setup_type = 'SHORT_BOS'
+                    setup_type = "BOS"  # Break of Structure
                     setup_strength = 'Strong'
                 else:
-                    setup_type = 'SHORT_CHoCH'  # Change of Character Short
+                    setup_type = "CHoCH"  # Change of Character
                     setup_strength = 'Moderate'
             else:  # DOWNTREND
                 if volume_analysis['analysis']['pressure'] in ['Strong Selling Climax', 'Moderate Selling Climax']:
-                    setup_type = 'SHORT_CONTINUATION'  # Continuation Short
+                    setup_type = "CONTINUATION"  # Strong Continuation
                     setup_strength = 'Strong'
                 else:
-                    setup_type = 'SHORT_PULLBACK'  # Pullback in Downtrend
+                    setup_type = "CONTINUATION"  # Pullback treated as Continuation
                     setup_strength = 'Moderate'
 
         # Get the risk percentage from the assessment
@@ -582,7 +579,6 @@ def analyze_trading_setup(data, lookback_volume: int = 30):
         setup.update({
             'setup_type': setup_type,
             'setup_strength': setup_strength,
-            'setup_description': setup_classification[setup_type],
             'position_type': 'LONG' if setup_type.startswith('LONG') else 'SHORT',
         })
 

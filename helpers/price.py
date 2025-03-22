@@ -1,12 +1,9 @@
 import pandas as pd
 
 
-def analyze_candle_momentum(candles: pd.DataFrame, n_candles: int = 5) -> dict:
-    if len(candles) < n_candles:
-        raise ValueError(f"Need at least {n_candles} candles")
-    recent_candles = candles.tail(n_candles)
-    last_candle = recent_candles.iloc[-1]
-    prev_candle = recent_candles.iloc[-2]
+def analyze_candle_momentum(candles: pd.DataFrame) -> dict:
+    last_candle = candles.iloc[-1]
+    prev_candle = candles.iloc[-2]
 
     body_size = abs(last_candle['close'] - last_candle['open'])
     upper_wick = last_candle['high'] - \

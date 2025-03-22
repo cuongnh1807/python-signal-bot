@@ -248,8 +248,8 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
 
     # Initialize risk factors dictionary
     risk_factors = {
-        'momentum': {'score': 0, 'weight': 0.3, 'contribution': 0},
-        'volume': {'score': 0, 'weight': 0.2, 'contribution': 0},
+        'momentum': {'score': 0, 'weight': 0.4, 'contribution': 0},
+        'volume': {'score': 0, 'weight': 0.1, 'contribution': 0},
         'ob_quality': {'score': 0, 'weight': 0.4, 'contribution': 0},
         'price_action': {'score': 0, 'weight': 0.1, 'contribution': 0}
     }
@@ -263,9 +263,24 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
 
     # Calculate momentum score (0-100)
     momentum_score = 50  # Base score
-    momentum_score += short_term_change * 2  # Adjust based on price change
-    momentum_score += candle_momentum * 0.5  # Add candle momentum influence
-    momentum_score = max(0, min(100, momentum_score))  # Cap between 0-100
+
+    if ob_direction == 1:  # Bullish OB
+        if momentum_direction == 1:
+            momentum_score += short_term_change * 3
+            momentum_score += candle_momentum * 0.7
+        else:
+            momentum_score -= abs(short_term_change) * \
+                2
+            momentum_score -= (100 - candle_momentum) * 0.3
+    else:  # Bearish OB
+        if momentum_direction == -1:
+            momentum_score += abs(short_term_change) * 3
+            momentum_score += candle_momentum * 0.7
+        else:
+            momentum_score -= short_term_change * 2
+            momentum_score -= (100 - candle_momentum) * 0.3
+
+    momentum_score = max(0, min(100, momentum_score))  # Giới hạn giữa 0-100
 
     risk_factors['momentum']['score'] = momentum_score
 
@@ -329,48 +344,6 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
         'warning_messages': warning_messages,
         'trade_recommendation': trade_recommendation
     }
-
-
-def calculate_order_percentage(ob_data: dict, current_price: float, volume_score: int, trend: str) -> float:
-    """
-    Calculate optimal percentage for limit orders based on OB analysis
-
-    Parameters:
-    - ob_data: Order Block data including volume, price levels
-    - current_price: Current market price
-    - volume_score: Volume analysis score (0-100)
-    - trend: Current market trend
-
-    Returns:
-    - percentage: Optimal percentage for limit order
-    """
-    # Base percentage (0.5% - 2%)
-    base_percentage = 0.5
-
-    # Volume factor (0-0.5%)
-    volume_factor = (volume_score / 100) * 0.5
-
-    # Price distance factor (0-0.5%)
-    if ob_data['OB'] == 1:  # Bullish OB
-        price_distance = abs(
-            current_price - ob_data['Bottom']) / ob_data['Bottom']
-    else:  # Bearish OB
-        price_distance = abs(current_price - ob_data['Top']) / ob_data['Top']
-
-    distance_factor = min(0.5, price_distance * 100)
-
-    # Trend alignment factor (0-0.5%)
-    trend_factor = 0.5 if (
-        (ob_data['OB'] == 1 and trend == 'UPTREND') or
-        (ob_data['OB'] == -1 and trend == 'DOWNTREND')
-    ) else 0.25
-
-    # Calculate final percentage
-    total_percentage = base_percentage + \
-        volume_factor + distance_factor + trend_factor
-
-    # Cap at 3%
-    return min(3.0, total_percentage)
 
 
 def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
@@ -464,7 +437,7 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
     }
 
 
-def analyze_trading_setup(data, ignore_old_ob=True):
+def analyze_trading_setup(data, lookback_volume: int = 20):
     """
     Analyze trading setups and calculate order percentages for active order blocks only
     """
@@ -476,7 +449,7 @@ def analyze_trading_setup(data, ignore_old_ob=True):
 
     # Get current price and volume metrics
     current_price = float(data['close'].iloc[-1])
-    avg_volume = data['volume'].mean()
+    avg_volume = data['volume'].tail(lookback_volume).mean()
     current_time = datetime.now().astimezone().astimezone(tz=None)
 
     try:
@@ -587,6 +560,7 @@ def analyze_trading_setup(data, ignore_old_ob=True):
         setup = {
             'current_price': current_price,
             'type': setup_type,
+            'atr': ob_results[i]['atr'],
             'ob_direction': 'Bullish' if ob_direction == 1 else 'Bearish',
             'current_trend': current_trend,
             'ob_level': f"{ob_bottom:.0f}-{ob_top:.0f}",

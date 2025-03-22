@@ -33,19 +33,8 @@ def get_symbol_precision(client, symbols):
 
 
 class MultiTickerManager:
-    """
-    Quản lý nhiều bot giao dịch cho các ticker khác nhau
-    """
-
     def __init__(self, config_path: str, telegram_config: Dict = None):
-        """
-        Khởi tạo MultiTickerManager
 
-        Parameters:
-        -----------
-        config_path: Đường dẫn đến file cấu hình JSON
-        telegram_config: Cấu hình Telegram (nếu không có sẽ lấy từ file cấu hình)
-        """
         self.config_path = config_path
         self.bots = {}
         self.telegram_config = telegram_config
@@ -55,7 +44,6 @@ class MultiTickerManager:
         self.load_config()
 
     def load_config(self):
-        """Tải cấu hình từ file JSON"""
         try:
             with open(self.config_path, 'r') as f:
                 config = json.load(f)
@@ -127,12 +115,10 @@ class MultiTickerManager:
                 # Khởi động bot
                 bot.start()
 
-                # Lưu bot vào danh sách
                 self.bots[symbol] = bot
 
                 logger.info(f"Started bot for {symbol}")
 
-                # Đợi một chút trước khi khởi động bot tiếp theo để tránh quá tải API
                 time.sleep(2)
 
             except Exception as e:
@@ -168,7 +154,6 @@ class MultiTickerManager:
                     logger.error(f"Cannot find configuration for {symbol}")
                     return
 
-                # Tạo bot mới
                 bot = LiveTradingBot(
                     client=self.client,
                     symbol=symbol,
@@ -188,10 +173,8 @@ class MultiTickerManager:
                     telegram=self.telegram
                 )
 
-                # Khởi động bot
                 bot.start()
 
-                # Cập nhật bot trong danh sách
                 self.bots[symbol] = bot
 
                 logger.info(f"Restarted bot for {symbol}")
@@ -206,13 +189,10 @@ class MultiTickerManager:
         if new_config_path:
             self.config_path = new_config_path
 
-        # Dừng tất cả các bot hiện tại
         self.stop_all()
 
-        # Tải cấu hình mới
         self.load_config()
 
-        # Khởi động lại tất cả các bot
         self.start_all()
 
         logger.info("Configuration updated and all bots restarted")

@@ -161,10 +161,34 @@ def detect_pivot_volume_order_blocks(
                     volume_ratio = volume_k / volume_ma_k if volume_ma_k > 0 else 1
                     height_ratio = ob['height'] / \
                         ob['atr'] if ob['atr'] > 0 else 1
-                    # Strength is a combination of volume and height ratios
-                    volume_strength = min(volume_ratio * 50, 50)
-                    height_strength = min(height_ratio * 50, 50)
-                    ob['strength'] = int(volume_strength + height_strength)
+
+                    ob_count = 0
+                    recent_count = 0
+                    ob_price_range = ob['height'] * 1.5
+
+                    for j in range(max(0, k-500), k):
+                        if j < len(df):
+                            if 'phv' in df.columns and df['phv'].iloc[j]:
+                                avg_price_j = (
+                                    df['high'].iloc[j] + df['low'].iloc[j]) / 2
+                                if abs(ob['avg'] - avg_price_j) <= ob_price_range:
+                                    ob_count += 1
+                                    if j >= max(0, k-100):
+                                        recent_count += 1
+
+                    ob['historical_count'] = ob_count
+                    ob['recent_count'] = recent_count
+
+                    if recent_count >= 3:
+                        historical_strength = max(
+                            5, 15 - (recent_count - 2) * 5)
+                    else:
+                        historical_strength = min(ob_count * 4, 20)
+
+                    volume_strength = min(volume_ratio * 40, 40)
+                    height_strength = min(height_ratio * 40, 40)
+                    ob['strength'] = int(
+                        volume_strength + height_strength + historical_strength)
 
                     # Only include OB if its strength meets the threshold
                     if ob['strength'] >= strength_threshold:
@@ -207,10 +231,34 @@ def detect_pivot_volume_order_blocks(
                     volume_ratio = volume_k / volume_ma_k if volume_ma_k > 0 else 1
                     height_ratio = ob['height'] / \
                         ob['atr'] if ob['atr'] > 0 else 1
-                    # Strength is a combination of volume and height ratios
-                    volume_strength = min(volume_ratio * 50, 50)
-                    height_strength = min(height_ratio * 50, 50)
-                    ob['strength'] = int(volume_strength + height_strength)
+
+                    ob_count = 0
+                    recent_count = 0
+                    ob_price_range = ob['height'] * 1.5
+
+                    for j in range(max(0, k-500), k):
+                        if j < len(df):
+                            if 'phv' in df.columns and df['phv'].iloc[j]:
+                                avg_price_j = (
+                                    df['high'].iloc[j] + df['low'].iloc[j]) / 2
+                                if abs(ob['avg'] - avg_price_j) <= ob_price_range:
+                                    ob_count += 1
+                                    if j >= max(0, k-100):
+                                        recent_count += 1
+
+                    ob['historical_count'] = ob_count
+                    ob['recent_count'] = recent_count
+
+                    if recent_count >= 3:
+                        historical_strength = max(
+                            5, 15 - (recent_count - 2) * 5)
+                    else:
+                        historical_strength = min(ob_count * 4, 20)
+
+                    volume_strength = min(volume_ratio * 40, 40)
+                    height_strength = min(height_ratio * 40, 40)
+                    ob['strength'] = int(
+                        volume_strength + height_strength + historical_strength)
 
                     # Only include OB if its strength meets the threshold
                     if ob['strength'] >= strength_threshold:

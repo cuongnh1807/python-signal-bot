@@ -89,8 +89,6 @@ class FuturesStrategy:
         volatility = self._calculate_volatility(analysis.get('price_data'))
 
         for setup in analysis['trade_setups']:
-            print(setup['setup_quality'],
-                  setup['volume_score'], setup['position_type'],  setup['trade_recommendation'])
             # Filter setups by quality and volume
             if setup['setup_quality'] < min_setup_quality:
                 continue
@@ -112,7 +110,6 @@ class FuturesStrategy:
 
             # Determine position side
             side = "LONG" if setup['position_type'] == 'LONG' else "SHORT"
-
             # Extract order block levels
             ob_levels = setup.get('ob_level', '0-0')
 
@@ -141,12 +138,9 @@ class FuturesStrategy:
             stop_loss = self._calculate_stop_from_ob(
                 side, ob_bottom, ob_top, entry_price, volume_ratio, volatility)
 
-            # Kiểm tra và đảm bảo stop loss khác với entry price
-            if abs(entry_price - stop_loss) < 0.0001:  # Nếu quá gần nhau
-                # Điều chỉnh stop loss để tạo khoảng cách tối thiểu
-                min_distance = entry_price * 0.005  # 0.5% của giá entry
+            if abs(entry_price - stop_loss) < 0.0001:
+                min_distance = entry_price * 0.005
                 if volatility is not None:
-                    # Hoặc 50% của volatility
                     min_distance = max(min_distance, volatility * 0.5)
 
                 if side == "LONG":
@@ -160,19 +154,13 @@ class FuturesStrategy:
             # Calculate risk distance in price units
             risk_distance = abs(entry_price - stop_loss)
 
-            # Fixed leverage at 20x
             leverage = self.default_leverage
-            # Calculate base margin percentage based on setup quality and volume ratio
-            # Higher quality setups get higher percentage of capital
             base_percent = 0.1  # Start with 10% of capital
-            # Adjust based on setup quality (0-20% bonus)
             quality_bonus = (setup['setup_quality'] -
                              65) / 100  # 65 is min quality
 
-            # Adjust based on volume ratio (0-15% bonus)
             volume_bonus = min(volume_ratio / 20, 0.15)
 
-            # Calculate total margin percentage (10-45% of capital)
             margin_percent = min(
                 base_percent + quality_bonus + volume_bonus, 0.45)
 
@@ -185,10 +173,8 @@ class FuturesStrategy:
             # Calculate position size based on margin and leverage
             position_size = margin_amount * leverage
 
-            # Calculate maximum acceptable loss (10% of margin)
             max_acceptable_loss = margin_amount * 0.1
 
-            # Check if risk is acceptable
             price_risk_per_unit = risk_distance
             total_price_risk = price_risk_per_unit * \
                 (position_size / entry_price)
@@ -210,7 +196,7 @@ class FuturesStrategy:
                 'entry_options': entry_prices,
                 'stop_loss': stop_loss,
                 'take_profit': self._calculate_dynamic_take_profits(
-                    entry_price, stop_loss, side, setup['setup_type'], volume_ratio),
+                    entry_price, stop_loss, side, setup['setup_type'], volume_ratio, setup['atr']),
                 'position_size': position_size,
                 'leverage': leverage,
                 'setup_quality': setup['setup_quality'],
@@ -226,7 +212,7 @@ class FuturesStrategy:
                 'warning_messages': setup.get('warning_messages', []),
                 'risk_reward_ratio': {level: abs(price - entry_price) / risk_distance
                                       for level, price in self._calculate_dynamic_take_profits(
-                                          entry_price, stop_loss, side, setup['setup_type'], volume_ratio).items()}
+                                          entry_price, stop_loss, side, setup['setup_type'], volume_ratio, setup['atr']).items()}
             }
 
             orders.append(order)
@@ -245,12 +231,11 @@ class FuturesStrategy:
         Dictionary with aggressive, moderate, and conservative entry prices
         """
         # Calculate order block midpoint
-        ob_mid = (ob_top + ob_bottom) / 2
         ob_height = ob_top - ob_bottom
 
         # Adjust entry aggression based on volume ratio and setup quality
         # Higher volume = more confident in the level = more aggressive entry
-        if volume_ratio >= 8 and setup_quality >= 85:
+        if volume_ratio >= 8 and setup_quality >= 90:
             aggression = 0.9  # Very aggressive for high volume & quality
         elif volume_ratio >= 5 or setup_quality >= 80:
             aggression = 0.7  # Aggressive for good volume or quality
@@ -262,29 +247,9 @@ class FuturesStrategy:
         entries = {}
 
         if side == "LONG":
-            # For long positions, entries are near the bottom of the order block
-            entries['aggressive'] = ob_bottom + (ob_height * 0.1)
-            entries['moderate'] = ob_bottom + (ob_height * 0.3)
-            entries['conservative'] = ob_mid
 
-            # If current price is already inside the order block
-            if current_price > ob_bottom and current_price < ob_top:
-                entries['aggressive'] = current_price
-                entries['moderate'] = current_price
-
-            # Select entry based on aggression level
             entries['selected'] = ob_bottom + (ob_height * aggression)
         else:
-            # For short positions, entries are near the top of the order block
-            entries['aggressive'] = ob_top - (ob_height * 0.1)
-            entries['moderate'] = ob_top - (ob_height * 0.3)
-            entries['conservative'] = ob_mid
-
-            # If current price is already inside the order block
-            if current_price > ob_bottom and current_price < ob_top:
-                entries['aggressive'] = current_price
-                entries['moderate'] = current_price
-
             # Select entry based on aggression level
             entries['selected'] = ob_top - (ob_height * aggression)
 
@@ -410,48 +375,56 @@ class FuturesStrategy:
 
         return base_size * volume_mult * quality_mult
 
-    def _calculate_dynamic_take_profits(self, entry_price, stop_loss, side, setup_type, volume_ratio):
-        """
-        Calculate improved take profit levels based on setup type and volume ratio.
+    def _calculate_dynamic_take_profits(self, entry_price, stop_loss, side, setup_type, volume_ratio, atr=None):
 
-        Returns:
-        --------
-        Dictionary with optimized take profit levels
-        """
         risk_distance = abs(entry_price - stop_loss)
 
-        # Adjust TP ratios based on volume ratio - higher volume = higher targets
-        # Cap at 2.0x for volume ratio of 10+
         volume_multiplier = 1.0 + (min(volume_ratio, 10) / 10)
 
-        # Base TP ratios by setup type
         if 'REVERSAL' in setup_type or 'BOS' in setup_type:
-            # Reversal setups often have larger moves
             base_ratios = {'tp1': 1.0, 'tp2': 2.0, 'tp3': 3.5}
         elif 'BREAKOUT' in setup_type or 'BREAKDOWN' in setup_type:
-            # Breakouts can have strong momentum
             base_ratios = {'tp1': 0.8, 'tp2': 1.8, 'tp3': 3.0}
         elif 'CONTINUATION' in setup_type:
-            # Continuation moves in established trends
             base_ratios = {'tp1': 1.0, 'tp2': 2.2, 'tp3': 3.2}
         elif 'CHoCH' in setup_type:
-            # Change of character setups
             base_ratios = {'tp1': 1.2, 'tp2': 2.5, 'tp3': 4.0}
         else:
-            # Default for other setup types
             base_ratios = {'tp1': 0.8, 'tp2': 1.5, 'tp3': 2.5}
 
-        # Apply volume multiplier to TP ratios
         tp_ratios = {k: v * volume_multiplier for k, v in base_ratios.items()}
 
-        # Calculate TP prices
         take_profits = {}
-        if side == "LONG":
-            for level, ratio in tp_ratios.items():
-                take_profits[level] = entry_price + (risk_distance * ratio)
-        else:  # SHORT
-            for level, ratio in tp_ratios.items():
-                take_profits[level] = entry_price - (risk_distance * ratio)
+
+        if atr is not None and atr > 0:
+            risk_atr_ratio = risk_distance / atr
+
+            if risk_atr_ratio < 0.5:
+                atr_multiplier = 1.5
+            elif risk_atr_ratio < 1.0:
+                atr_multiplier = 1.2
+            elif risk_atr_ratio > 3.0:
+                atr_multiplier = 0.8
+            else:
+                atr_multiplier = 1.0
+
+            # Áp dụng hệ số ATR
+            tp_ratios = {k: v * atr_multiplier for k, v in tp_ratios.items()}
+
+            # Tính toán mức TP dựa trên ATR
+            if side == "LONG":
+                for level, ratio in tp_ratios.items():
+                    take_profits[level] = entry_price + (atr * ratio * 2)
+            else:  # SHORT
+                for level, ratio in tp_ratios.items():
+                    take_profits[level] = entry_price - (atr * ratio * 2)
+        else:
+            if side == "LONG":
+                for level, ratio in tp_ratios.items():
+                    take_profits[level] = entry_price + (risk_distance * ratio)
+            else:  # SHORT
+                for level, ratio in tp_ratios.items():
+                    take_profits[level] = entry_price - (risk_distance * ratio)
 
         return take_profits
 

@@ -763,37 +763,35 @@ class LiveTradingBot:
             time_params = self.time_sync.get_timestamp_with_recvwindow()
             quantity = adjust_precision(
                 order['position_size'] / order['entry_price'], self.symbol_precision['quantityPrecision'])
+            if quantity != 0:
+                # Determine order type and parameters
+                if order['entry_type'] == 'MARKET':
+                    # Place market order
+                    response = self.client.futures_create_order(
+                        symbol=self.symbol,
+                        side='BUY' if order['side'] == 'LONG' else 'SELL',
+                        type='MARKET',
+                        quantity=quantity,
 
-            # Determine order type and parameters
-            if order['entry_type'] == 'MARKET':
-                # Place market order
-                response = self.client.futures_create_order(
-                    symbol=self.symbol,
-                    side='BUY' if order['side'] == 'LONG' else 'SELL',
-                    type='MARKET',
-                    quantity=quantity,
-
-                    **time_params  # Add timestamp and recvWindow
-                )
-
+                        **time_params  # Add timestamp and recvWindow
+                    )
                 # Get filled price
-                order['actual_entry_price'] = float(response['avgPrice'])
-                order['order_id'] = response['orderId']
-                order['status'] = 'ACTIVE'
+                    order['actual_entry_price'] = float(response['avgPrice'])
+                    order['order_id'] = response['orderId']
+                    order['status'] = 'ACTIVE'
 
                 # Send notification
-                self.telegram.notify_order_filled(order)
+                    self.telegram.notify_order_filled(order)
 
                 # Place stop loss
-                self._place_stop_loss(order)
+                    self._place_stop_loss(order)
 
                 # Place take profits
-                self._place_take_profits(order)
+                    self._place_take_profits(order)
 
                 # Add to open positions
-                self.open_positions[response['orderId']] = order
-
-                logger.info(f"Market order placed: {response['orderId']}")
+                    self.open_positions[response['orderId']] = order
+                    logger.info(f"Market order placed: {response['orderId']}")
 
             else:  # LIMIT order
                 # Place limit order
@@ -958,55 +956,82 @@ class LiveTradingBot:
                 # If position amount is 0, the position is closed
                 if position_amount == 0:
                     for position_id in list(self.open_positions.keys()):
-                        # Check if this position was closed
-                        # We need to check recent trades to get the exit price and reason
-                        trades = self.client.futures_account_trades(
-                            symbol=self.symbol, limit=10)
+                        position = self.open_positions[position_id]
 
-                        for trade in trades:
-                            if trade['orderId'] == position_id:
-                                position = self.open_positions[position_id]
+                        try:
+                            trades = self.client.futures_account_trades(
+                                symbol=self.symbol, limit=20)
+                            position_trades = []
+                            for trade in trades:
+                                is_closing_side = (position['side'] == 'LONG' and trade['side'] == 'SELL') or \
+                                    (position['side'] ==
+                                     'SHORT' and trade['side'] == 'BUY')
 
-                                # Update position details
-                                position['status'] = 'CLOSED'
-                                position['exit_time'] = datetime.fromtimestamp(
-                                    trade['time'] / 1000)
-                                position['exit_price'] = float(trade['price'])
-
-                                # Determine exit reason
-                                if trade['orderId'] == position.get('stop_loss_order_id'):
-                                    position['exit_reason'] = 'STOP_LOSS'
+                                # Kiểm tra thời gian giao dịch sau khi vị thế được mở
+                                if 'filled_time' in position:
+                                    trade_time = datetime.fromtimestamp(
+                                        trade['time'] / 1000)
+                                    is_after_entry = trade_time > position['filled_time']
                                 else:
-                                    # Check if it matches any take profit order
-                                    for tp_name, tp_id in position.get('take_profit_order_ids', {}).items():
-                                        if trade['orderId'] == tp_id:
-                                            position['exit_reason'] = f'TAKE_PROFIT_{tp_name.upper()}'
-                                            break
-                                    else:
+                                    is_after_entry = True
+
+                                if is_closing_side and is_after_entry:
+                                    position_trades.append(trade)
+
+                            if not position_trades:
+                                continue
+
+                            position_trades.sort(
+                                key=lambda x: x['time'], reverse=True)
+                            latest_trade = position_trades[0]
+
+                            position['status'] = 'CLOSED'
+                            position['exit_time'] = datetime.fromtimestamp(
+                                latest_trade['time'] / 1000)
+                            position['exit_price'] = float(
+                                latest_trade['price'])
+
+                            if str(latest_trade['orderId']) == str(position.get('stop_loss_order_id')):
+                                position['exit_reason'] = 'STOP_LOSS'
+                            else:
+                                # Kiểm tra nếu khớp với bất kỳ lệnh take profit nào
+                                tp_matched = False
+                                for tp_name, tp_id in position.get('take_profit_order_ids', {}).items():
+                                    if str(latest_trade['orderId']) == str(tp_id):
+                                        position['exit_reason'] = f'TAKE_PROFIT_{tp_name.upper()}'
+                                        tp_matched = True
+                                        break
+
+                                if not tp_matched:
+                                    if latest_trade.get('orderType', '') == 'MARKET' or 'reduceOnly' in latest_trade and latest_trade['reduceOnly']:
                                         position['exit_reason'] = 'MANUAL_CLOSE'
+                                    else:
+                                        position['exit_reason'] = 'OTHER'
 
-                                # Calculate profit
-                                entry_price = position['actual_entry_price']
-                                exit_price = position['exit_price']
-                                position_size = position['position_size']
+                            entry_price = position['actual_entry_price']
+                            exit_price = position['exit_price']
+                            position_size = position['position_size']
 
-                                if position['side'] == 'LONG':
-                                    profit = position_size * \
-                                        (exit_price - entry_price) / entry_price
-                                else:  # SHORT
-                                    profit = position_size * \
-                                        (entry_price - exit_price) / entry_price
+                            if position['side'] == 'LONG':
+                                profit = position_size * \
+                                    (exit_price - entry_price) / entry_price
+                            else:
+                                profit = position_size * \
+                                    (entry_price - exit_price) / entry_price
 
-                                position['profit'] = profit
-                                position['profit_percent'] = (
-                                    profit / position.get('margin_amount', 1)) * 100
+                            position['profit'] = profit
+                            position['profit_percent'] = (
+                                profit / position.get('margin_amount', 1)) * 100
 
-                                # Send notification
-                                self.telegram.notify_position_closed(position)
+                            # Gửi thông báo
+                            self.telegram.notify_position_closed(position)
 
-                                # Remove from open positions
-                                del self.open_positions[position_id]
-                                break
+                            del self.open_positions[position_id]
+
+                        except Exception as e:
+                            error_msg = f"Error processing closed position {position_id}: {str(e)}"
+                            logger.error(error_msg)
+                            # Không gửi thông báo lỗi để tránh spam
 
         except Exception as e:
             error_msg = f"Error checking order status: {str(e)}"

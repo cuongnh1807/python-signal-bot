@@ -437,7 +437,7 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
     }
 
 
-def analyze_trading_setup(data, lookback_volume: int = 20):
+def analyze_trading_setup(data, lookback_volume: int = 30):
     """
     Analyze trading setups and calculate order percentages for active order blocks only
     """

@@ -436,22 +436,24 @@ class LiveTradingBot:
 
             # Tìm USDT trong danh sách tài sản
             usdt_balance = 0.0
+            usdt_available_balance = 0.0
             for asset in account_info:
                 if asset['asset'] == 'USDT':
                     usdt_balance = float(asset['balance'])
+                    usdt_available_balance = float(asset['availableBalance'])
                     break
 
-            logger.info(f"Current USDT balance: {usdt_balance}")
+            logger.info(
+                f"Current USDT balance: {usdt_balance}, Available: {usdt_available_balance}")
 
             # Nếu số dư quá nhỏ, đưa ra cảnh báo
-            if usdt_balance < 10.0:
-                warning_msg = f"WARNING: Low USDT balance ({usdt_balance}). Trading may be limited."
+            if usdt_available_balance < 10.0:
+                warning_msg = f"WARNING: Low available USDT balance ({usdt_available_balance}). Trading may be limited."
                 logger.warning(warning_msg)
                 if self.telegram:
                     self.telegram.notify_error(warning_msg)
 
-            return usdt_balance if usdt_balance < 650 else 650
-
+            return min(usdt_available_balance, 650)
         except Exception as e:
             error_msg = f"Error getting USDT balance: {str(e)}"
             logger.error(error_msg)

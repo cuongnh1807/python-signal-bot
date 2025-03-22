@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -5,6 +6,7 @@ from typing import Dict, List, Tuple, Optional, Union
 from strategy import analyze_trading_setup, calculate_rsi, calculate_macd
 from smartmoneyconcepts.smc import smc
 import logging
+import math
 
 # Configure logging
 logging.basicConfig(
@@ -255,76 +257,43 @@ class FuturesStrategy:
 
         return entries
 
+    from typing import Optional
+
     def _calculate_stop_from_ob(self, side: str, ob_bottom: float, ob_top: float,
                                 entry_price: float, volume_ratio: float,
                                 volatility: Optional[float] = None) -> float:
-        """
-        Calculate stop loss based on volume ratio and volatility for better protection.
+        # Validate order block range
+        if ob_top <= ob_bottom:
+            raise ValueError("ob_top must be greater than ob_bottom")
 
-        Parameters:
-        -----------
-        side: Position side (LONG or SHORT)
-        ob_bottom: Bottom price of order block
-        ob_top: Top price of order block
-        entry_price: Entry price
-        volume_ratio: Volume ratio of OB compared to average
-        volatility: Market volatility (optional)
-
-        Returns:
-        --------
-        Stop loss price with better protection against premature stopouts
-        """
+        # Calculate OB height with a volatility-adaptive minimum
         ob_height = ob_top - ob_bottom
-
-        # Đảm bảo ob_height không quá nhỏ
-        min_height = entry_price * 0.001  # Tối thiểu 0.1% của giá entry
+        min_height = volatility * 0.5 if volatility else entry_price * 0.001
         ob_height = max(ob_height, min_height)
 
-        # Adjust buffer based on volume ratio - higher volume = wider stop
-        # Volume ratio > 10 indicates very significant level that may have more volatility
-        if volume_ratio >= 10:
-            buffer_ratio = 0.6  # Wider stop for very high volume OB
-        elif volume_ratio >= 5:
-            buffer_ratio = 0.5  # Wide buffer for good volume OB
-        elif volume_ratio >= 3:
-            buffer_ratio = 0.4  # Medium buffer for moderate volume OB
-        else:
-            buffer_ratio = 0.3  # Tighter buffer for low volume OB
+        # Smooth buffer ratio based on volume
+        buffer_ratio = 0.3 + (0.3 * (min(volume_ratio, 10) / 10))
 
-        # Use volatility to ensure minimum stop distance
-        min_stop_distance = entry_price * 0.005  # Tối thiểu 0.5% của giá entry
-        if volatility is not None:
-            # Scale volatility buffer with volume ratio
-            # Higher volume = higher multiplier
-            vol_multiplier = 2.0 + (volume_ratio * 0.2)
+        min_stop_distance = entry_price * 0.005
+        if volatility:
+            vol_multiplier = 1.0 + (min(volume_ratio, 10) / 10)
             min_stop_distance = max(
                 min_stop_distance, volatility * vol_multiplier)
 
-        # Calculate stop distance
+        # Final stop distance with volatility floor
         stop_distance = max(ob_height * buffer_ratio, min_stop_distance)
+        if volatility:
+            stop_distance = max(stop_distance, volatility * 1.5)
 
+        # Calculate stop-loss price
         if side == "LONG":
-            # For long positions
-            if entry_price <= ob_bottom:
-                # Entry below OB
-                return entry_price - stop_distance
-            elif entry_price <= ob_top:
-                # Entry inside OB
-                return min(entry_price - stop_distance, ob_bottom - (ob_height * buffer_ratio))
-            else:
-                # Entry above OB
-                return ob_bottom - (ob_height * buffer_ratio)
+            buffer = ob_height * buffer_ratio
+            stop_loss = min(entry_price - stop_distance, ob_bottom - buffer)
         else:  # SHORT
-            # For short positions
-            if entry_price >= ob_top:
-                # Entry above OB
-                return entry_price + stop_distance
-            elif entry_price >= ob_bottom:
-                # Entry inside OB
-                return max(entry_price + stop_distance, ob_top + (ob_height * buffer_ratio))
-            else:
-                # Entry below OB
-                return ob_top + (ob_height * buffer_ratio)
+            buffer = ob_height * buffer_ratio
+            stop_loss = max(entry_price + stop_distance, ob_top + buffer)
+
+        return stop_loss
 
     def _calculate_volatility(self, price_data):
         """Calculate recent market volatility"""
@@ -379,45 +348,43 @@ class FuturesStrategy:
 
         risk_distance = abs(entry_price - stop_loss)
 
-        volume_multiplier = 1.0 + (min(volume_ratio, 10) / 10)
+    # Volume multiplier with logarithmic scaling
+        volume_multiplier = 1.0 + \
+            (math.log1p(min(volume_ratio, 100)) / math.log(10))
 
-        if 'REVERSAL' in setup_type or 'BOS' in setup_type:
+    # Exact setup type matching
+        if setup_type == "REVERSAL" or setup_type == "BOS":
             base_ratios = {'tp1': 1.0, 'tp2': 2.0, 'tp3': 3.5}
-        elif 'BREAKOUT' in setup_type or 'BREAKDOWN' in setup_type:
+        elif setup_type == "BREAKOUT" or setup_type == "BREAKDOWN":
             base_ratios = {'tp1': 0.8, 'tp2': 1.8, 'tp3': 3.0}
-        elif 'CONTINUATION' in setup_type:
+        elif setup_type == "CONTINUATION":
             base_ratios = {'tp1': 1.0, 'tp2': 2.2, 'tp3': 3.2}
-        elif 'CHoCH' in setup_type:
+        elif setup_type == "CHoCH":
             base_ratios = {'tp1': 1.2, 'tp2': 2.5, 'tp3': 4.0}
         else:
-            base_ratios = {'tp1': 0.8, 'tp2': 1.5, 'tp3': 2.5}
+            raise ValueError(f"Unknown setup_type: {setup_type}")
 
-        tp_ratios = {k: v * volume_multiplier for k, v in base_ratios.items()}
+    # Progressive scaling for TP levels
+        progressive_factors = {'tp1': 1.0, 'tp2': 1.1, 'tp3': 1.2}
+        tp_ratios = {k: v * volume_multiplier *
+                     progressive_factors[k] for k, v in base_ratios.items()}
 
-        take_profits = {}
-
+    # ATR-based adjustment
         if atr is not None and atr > 0:
             risk_atr_ratio = risk_distance / atr
-
-            if risk_atr_ratio < 0.5:
-                atr_multiplier = 1.5
-            elif risk_atr_ratio < 1.0:
-                atr_multiplier = 1.2
-            elif risk_atr_ratio > 3.0:
-                atr_multiplier = 0.8
-            else:
-                atr_multiplier = 1.0
-
-            # Áp dụng hệ số ATR
+            atr_multiplier = 1.0 + \
+                (0.5 * (1.0 - math.tanh(risk_atr_ratio - 1.5)))
             tp_ratios = {k: v * atr_multiplier for k, v in tp_ratios.items()}
 
-            # Tính toán mức TP dựa trên ATR
+    # Calculate TP prices
+        take_profits = {}
+        if atr is not None and atr > 0:
             if side == "LONG":
                 for level, ratio in tp_ratios.items():
-                    take_profits[level] = entry_price + (atr * ratio * 2)
+                    take_profits[level] = entry_price + (atr * ratio)
             else:  # SHORT
                 for level, ratio in tp_ratios.items():
-                    take_profits[level] = entry_price - (atr * ratio * 2)
+                    take_profits[level] = entry_price - (atr * ratio)
         else:
             if side == "LONG":
                 for level, ratio in tp_ratios.items():
@@ -425,6 +392,16 @@ class FuturesStrategy:
             else:  # SHORT
                 for level, ratio in tp_ratios.items():
                     take_profits[level] = entry_price - (risk_distance * ratio)
+
+    # Apply maximum TP constraint
+        max_tp_ratio = 5.0
+        for level in take_profits:
+            if side == "LONG":
+                take_profits[level] = min(
+                    take_profits[level], entry_price + (risk_distance * max_tp_ratio))
+            else:
+                take_profits[level] = max(
+                    take_profits[level], entry_price - (risk_distance * max_tp_ratio))
 
         return take_profits
 

@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from binance.client import Client
 
 from binance_data_fetcher import BinanceDataFetcher
 
@@ -325,7 +326,8 @@ if __name__ == "__main__":
     parser.add_argument(
         '--interval', type=str, default='15m', help='Interval to fetch data')
     args = parser.parse_args()
-    fetchData = BinanceDataFetcher()
+    client = Client()
+    fetchData = BinanceDataFetcher(client)
     start_time = datetime.now() - timedelta(days=7)
     data = fetchData.get_historical_klines(
         args.symbol, interval=args.interval, start_time=start_time)

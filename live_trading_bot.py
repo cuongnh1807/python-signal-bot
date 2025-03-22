@@ -793,18 +793,18 @@ class LiveTradingBot:
                     self.open_positions[response['orderId']] = order
                     logger.info(f"Market order placed: {response['orderId']}")
 
-            else:  # LIMIT order
-                # Place limit order
-                response = self.client.futures_create_order(
-                    symbol=self.symbol,
-                    side='BUY' if order['side'] == 'LONG' else 'SELL',
-                    type='LIMIT',
-                    quantity=quantity,
-                    timeInForce='GTC',
-                    price=round_step_size(order['entry_price'], float(
-                        self.symbol_precision['tickSize'])),
-                    **time_params  # Add timestamp and recvWindow
-                )
+                else:  # LIMIT order
+                    # Place limit order
+                    response = self.client.futures_create_order(
+                        symbol=self.symbol,
+                        side='BUY' if order['side'] == 'LONG' else 'SELL',
+                        type='LIMIT',
+                        quantity=quantity,
+                        timeInForce='GTC',
+                        price=round_step_size(order['entry_price'], float(
+                            self.symbol_precision['tickSize'])),
+                        **time_params  # Add timestamp and recvWindow
+                    )
 
                 order['order_id'] = response['orderId']
                 order['status'] = 'PENDING'
@@ -855,16 +855,13 @@ class LiveTradingBot:
         """Place take profit orders"""
         try:
             # Calculate quantity
-            quantity = order['position_size'] / order['actual_entry_price']
-            quantity = adjust_precision(
-                quantity, self.symbol_precision['quantityPrecision'])
-
             # Place take profit orders
             tp_order_ids = {}
 
             # Split quantity among take profit levels
             tp_levels = len(order['take_profit'])
-            qty_per_level = quantity / tp_levels
+            qty_per_level = (order['position_size'] /
+                             order['actual_entry_price']) / tp_levels
             qty_per_level = adjust_precision(
                 qty_per_level, self.symbol_precision['quantityPrecision'])
 

@@ -437,7 +437,7 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
     }
 
 
-def analyze_trading_setup(data, lookback_volume: int = 30):
+def analyze_trading_setup(data, lookback_volume: int = 50):
     """
     Analyze trading setups and calculate order percentages for active order blocks only
     """
@@ -560,7 +560,7 @@ def analyze_trading_setup(data, lookback_volume: int = 30):
             'atr': ob_results[i]['atr'],
             'ob_direction': 'Bullish' if ob_direction == 1 else 'Bearish',
             'current_trend': current_trend,
-            'ob_level': f"{ob_bottom:.0f}-{ob_top:.0f}",
+            'ob_levels': {'top': ob_top, 'bottom': ob_bottom},
             'volume_score': volume_score,
             'volume_ratio': volume_ratio,
             'ob_volume': ob_volume,

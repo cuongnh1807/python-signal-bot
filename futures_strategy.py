@@ -7,6 +7,7 @@ from strategy import analyze_trading_setup
 from smartmoneyconcepts.smc import smc
 import logging
 import math
+from typing import Optional
 
 # Configure logging
 logging.basicConfig(
@@ -249,7 +250,7 @@ class FuturesStrategy:
                                    volume_ratio: float,
                                    volatility: Optional[float] = None) -> Dict[str, float]:
         """
-        Calculate entry prices based on order block levels and volume ratio.
+        Calculate entry prices based on order block levels, volume ratio, and volatility (ATR).
 
         Returns:
         --------
@@ -257,6 +258,7 @@ class FuturesStrategy:
         """
         # Calculate order block midpoint
         ob_height = ob_top - ob_bottom
+        ob_mid = ob_bottom + (ob_height / 2)
 
         # Adjust entry aggression based on volume ratio and setup quality
         # Higher volume = more confident in the level = more aggressive entry
@@ -270,17 +272,37 @@ class FuturesStrategy:
             aggression = 0.3  # Conservative for low volume and quality
 
         entries = {}
+        if volatility is not None and volatility > 0:
+            # Calculate normalized volatility factor (compare to order block height)
+            vol_factor = min(volatility / ob_height, 2.0)  # Cap at 2x
 
+            # Adjust aggression based on volatility
+            if vol_factor > 1.5:
+                # High volatility - be more conservative
+                aggression = max(0.2, aggression - 0.2)
+            elif vol_factor < 0.5:
+                # Low volatility - can be more aggressive
+                aggression = min(0.9, aggression + 0.1)
+
+        # Calculate multiple entry levels
         if side == "LONG":
-
+            # Select entry based on aggression level with volatility adjustment
             entries['selected'] = ob_bottom + (ob_height * aggression)
-        else:
-            # Select entry based on aggression level
+
+            # Safety check - if current price is below any entry, adjust to just below current price
+            if current_price < entries['selected']:
+                buffer = 0.001 * current_price  # 0.1% buffer
+                entries['selected'] = max(ob_bottom, current_price - buffer)
+        else:  # SHORT
+            # Select entry based on aggression level with volatility adjustment
             entries['selected'] = ob_top - (ob_height * aggression)
 
-        return entries
+            # Safety check - if current price is above any entry, adjust to just above current price
+            if current_price > entries['selected']:
+                buffer = 0.001 * current_price  # 0.1% buffer
+                entries['selected'] = min(ob_top, current_price + buffer)
 
-    from typing import Optional
+        return entries
 
     def _calculate_stop_from_ob(self, side: str, ob_bottom: float, ob_top: float,
                                 entry_price: float, volume_ratio: float,

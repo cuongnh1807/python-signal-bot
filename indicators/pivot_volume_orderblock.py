@@ -22,7 +22,7 @@ def detect_pivot_volume_order_blocks(
     atr_period=14,
     min_height_multiplier=0.5,
     use_market_structure=True,
-    strength_threshold=70
+    strength_threshold=80
 ):
     """
     Detect Order Blocks and only include those that are strong enough to potentially cause rejection.
@@ -43,13 +43,10 @@ def detect_pivot_volume_order_blocks(
         tuple: (Updated DataFrame with OB signals, list of active order blocks).
     """
 
-    # Make a copy of the DataFrame to avoid modifying the original
     df = df.copy()
 
-    # Check if volume data is available in the DataFrame
     has_volume = 'volume' in df.columns
 
-    # Calculate volume moving average if volume data exists
     if has_volume:
         df['volume_ma'] = df['volume'].rolling(volume_lookback).mean()
         # Fill NaN values with the first volume value or 0 if DataFrame is empty
@@ -183,10 +180,10 @@ def detect_pivot_volume_order_blocks(
                         historical_strength = max(
                             5, 15 - (recent_count - 2) * 5)
                     else:
-                        historical_strength = min(ob_count * 4, 20)
+                        historical_strength = min(ob_count * 4, 25)
 
                     volume_strength = min(volume_ratio * 40, 40)
-                    height_strength = min(height_ratio * 40, 40)
+                    height_strength = min(height_ratio * 35, 35)
                     ob['strength'] = int(
                         volume_strength + height_strength + historical_strength)
 

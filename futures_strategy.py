@@ -1,9 +1,9 @@
 import math
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Union
-from strategy import analyze_trading_setup, calculate_rsi, calculate_macd
+from datetime import datetime
+from typing import Dict, List
+from strategy import analyze_trading_setup
 from smartmoneyconcepts.smc import smc
 import logging
 import math

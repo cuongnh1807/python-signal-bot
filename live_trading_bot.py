@@ -323,7 +323,8 @@ class LiveTradingBot:
                  symbol_precision: Dict = None,
                  fast_ema: int = 8,
                  slow_ema: int = 21,
-                 volume_threshold: float = 2.0):
+                 volume_threshold: float = 2.0,
+                 check_interval: str = '5m'):
         """
         Initialize the live trading bot.
 
@@ -344,6 +345,7 @@ class LiveTradingBot:
         slow_ema: Slow EMA period for crossover strategy
         volume_threshold: Volume threshold for crossover strategy
         max_distance_to_current_price: Maximum distance from current price for placing orders
+        check_interval: Interval for checking updates (e.g., "5m"), can be different from analysis interval
         """
 
         self.symbol = symbol
@@ -419,6 +421,9 @@ class LiveTradingBot:
 
         # New parameter
         self.max_distance_to_current_price = max_distance_to_current_price
+
+        # New parameter
+        self.check_interval = check_interval
 
         logger.info(
             f"Initialized LiveTradingBot for {symbol} on {interval} timeframe with {self.initial_capital} USDT")
@@ -679,7 +684,6 @@ class LiveTradingBot:
             if new_orders:
                 # Create signatures for new orders for later comparison
                 for order in new_orders:
-                    print("symbol_precision", self.symbol_precision)
 
                     # Create a unique signature based on key order properties
                     signature = f"{order['side']}_{round_step_size(order['entry_price'], float(self.symbol_precision['tickSize'])):.2f}"
@@ -1295,27 +1299,29 @@ class LiveTradingBot:
 
     def _analysis_loop(self):
         """Continuously run market analysis at interval boundaries"""
+        last_full_analysis_time = None
+
         while self.running:
             try:
                 # Cập nhật vốn trước khi phân tích
                 self._update_capital()
 
-                # Calculate time until next candle closes
+                # Calculate time until next check interval closes (5m)
                 now = datetime.now()
-                seconds_in_interval = self._get_interval_seconds(self.interval)
+                check_interval = self.check_interval
 
                 # Calculate time until next candle
-                if self.interval.endswith('m'):
+                if check_interval.endswith('m'):
                     # For minute-based intervals
-                    minutes = int(self.interval[:-1])
+                    minutes = int(check_interval[:-1])
                     current_minute = now.minute
                     minutes_to_next = minutes - (current_minute % minutes)
                     if minutes_to_next == 0:
                         minutes_to_next = minutes
                     seconds_to_next = minutes_to_next * 60 - now.second
-                elif self.interval.endswith('h'):
+                elif check_interval.endswith('h'):
                     # For hour-based intervals
-                    hours = int(self.interval[:-1])
+                    hours = int(check_interval[:-1])
                     current_hour = now.hour
                     hours_to_next = hours - (current_hour % hours)
                     if hours_to_next == 0:
@@ -1329,19 +1335,75 @@ class LiveTradingBot:
                 # Add a small buffer to ensure the candle has closed
                 seconds_to_next += 2
 
-                # Sleep until next candle
-                logger.info(f"Next analysis in {seconds_to_next} seconds")
+                # Sleep until next check interval
+                logger.info(f"Next check in {seconds_to_next} seconds")
                 time.sleep(seconds_to_next)
 
                 # Run analysis if we're still running
                 if self.running:
-                    self._run_analysis()
+                    # Fetch newest data before analyzing
+                    self._fetch_latest_data()
+
+                    # Determine if we should run a full analysis based on the main interval (15m)
+                    # Only run full analysis if aligned with the main interval or forced
+                    main_interval_closed = self._is_main_interval_closed(
+                        last_full_analysis_time)
+
+                    if main_interval_closed:
+                        logger.info(
+                            f"Running full analysis on closed {self.interval} candle")
+                        self._run_analysis()
+                        last_full_analysis_time = datetime.now()
+                    else:
+                        # Vẫn cập nhật giá và kiểm tra các lệnh hiện tại
+                        logger.info(
+                            f"Updating price data only (waiting for {self.interval} candle to close)")
+                        self._check_order_status()
 
             except Exception as e:
                 error_msg = f"Error in analysis loop: {str(e)}"
                 logger.error(error_msg)
                 self.telegram.notify_error(error_msg)
                 time.sleep(60)  # Wait a minute before trying again
+
+    def _fetch_latest_data(self):
+        """Fetch the latest market data"""
+        try:
+            # Calculate start time based on window size
+            start_time = datetime.now() - timedelta(
+                seconds=self._get_interval_seconds(self.interval) * (self.window_size + 10))
+
+            # Fetch data
+            self.historical_data = self.data_fetcher.get_historical_klines(
+                symbol=self.symbol,
+                interval=self.interval,
+                start_time=start_time,
+                limit=self.window_size
+            )
+
+            # Update current price
+            if not self.historical_data.empty:
+                self.current_price = self.historical_data['close'].iloc[-1]
+
+            logger.info(
+                f"Updated historical data. Current price: {self.current_price}")
+        except Exception as e:
+            logger.error(f"Error fetching latest data: {str(e)}")
+
+    def _is_main_interval_closed(self, last_full_analysis_time):
+        """Check if main interval (15m) candle has closed since last full analysis"""
+        if last_full_analysis_time is None:
+            return True
+
+        now = datetime.now()
+        interval_seconds = self._get_interval_seconds(self.interval)
+
+        # Calculate how many intervals have passed
+        seconds_since_last = (now - last_full_analysis_time).total_seconds()
+        intervals_passed = seconds_since_last / interval_seconds
+
+        # If at least one interval has passed, we should do full analysis
+        return intervals_passed >= 1.0
 
     def stop(self):
         """Stop the trading bot"""

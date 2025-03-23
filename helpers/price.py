@@ -76,7 +76,7 @@ def calculate_momentum_score(price_change: float, pattern_score: float, volume_s
     return max(0, min(100, final_score))
 
 
-def calculate_price_momentum(data: pd.DataFrame, lookback: int = 20, short_term_period: int = 10) -> dict:
+def calculate_price_momentum(data: pd.DataFrame, lookback: int = 20, short_term_period: int = 5) -> dict:
     if len(data) < lookback:
         raise ValueError(
             f"Not enough data for {lookback} period momentum calculation")

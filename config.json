@@ -7,7 +7,7 @@
       "leverage": 10,
       "window_size": 300,
       "min_setup_quality": 70.0,
-      "min_volume_ratio": 3,
+      "min_volume_ratio": 1.5,
       "max_distance_to_current_price": 2
     },
     {
@@ -17,7 +17,7 @@
       "leverage": 10,
       "window_size": 300,
       "min_setup_quality": 70,
-      "min_volume_ratio": 3.5,
+      "min_volume_ratio": 1.2,
       "max_distance_to_current_price": 1
     },
     {
@@ -27,7 +27,7 @@
       "leverage": 10,
       "window_size": 300,
       "min_setup_quality": 70,
-      "min_volume_ratio": 3.5,
+      "min_volume_ratio": 1.2,
       "max_distance_to_current_price": 1
     }
   ]

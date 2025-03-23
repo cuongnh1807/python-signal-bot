@@ -98,10 +98,12 @@ class FuturesStrategy:
 
         for setup in analysis['trade_setups']:
             # Filter setups by quality and volume
+            print("setup_quality", setup['setup_quality'])
             if setup['setup_quality'] < min_setup_quality:
                 continue
 
             volume_ratio = setup.get('ob_volume_ratio', 0)
+
             if volume_ratio < min_volume_ratio:
                 continue
 

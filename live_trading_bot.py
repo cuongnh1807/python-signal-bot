@@ -432,7 +432,6 @@ class LiveTradingBot:
         """Lấy số dư USDT từ tài khoản Futures"""
         try:
             if self.test_mode:
-                # Trong chế độ test, sử dụng giá trị mặc định
                 logger.info("Test mode: Using default balance of 1000 USDT")
                 return 1000.0
 
@@ -683,7 +682,7 @@ class LiveTradingBot:
             new_order_signatures = set()
             if new_orders:
                 # Create signatures for new orders for later comparison
-                for order, index in enumerate(new_orders):
+                for index, order in enumerate(new_orders):
 
                     # Create a unique signature based on key order properties
                     signature = f"{order['side']}_{round_step_size(order['entry_price'], float(self.symbol_precision['tickSize'])):.2f}"

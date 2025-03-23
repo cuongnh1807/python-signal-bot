@@ -388,7 +388,9 @@ class smc:
                 ohlc, buy_alert=False, sell_alert=False)
         elif type_orderblock == "pivot_volume":
             _, order_blocks = detect_pivot_volume_order_blocks(
-                ohlc, length=5, bull_ext_last=5, bear_ext_last=5, use_market_structure=True)
+                ohlc, length=5,
+                bull_ext_last=5, bear_ext_last=10,
+                atr_period=14, min_height_multiplier=0.5)
             return order_blocks
 
     @classmethod

@@ -93,12 +93,10 @@ class FuturesStrategy:
         volatility = self._calculate_volatility(analysis.get('price_data'))
 
         # Determine price direction using recent price data
-        price_data = analysis.get('price_data')
-        price_direction = self._determine_price_direction(price_data)
 
         for setup in analysis['trade_setups']:
-            # Filter setups by quality and volume
-            print("setup_quality", setup['setup_quality'])
+            logger.info("setup_quality: %s, ob_volume_ratio: %s, ob_levels: %s, strength: %s, ob_direction: %s",
+                        setup['setup_quality'], setup.get('ob_volume_ratio', 0), setup.get('ob_levels', {}), setup.get('strength', 0), setup.get('ob_direction', ''))
             if setup['setup_quality'] < min_setup_quality:
                 continue
 
@@ -111,34 +109,6 @@ class FuturesStrategy:
             if respect_warnings and self._has_critical_warnings(setup):
                 logger.info(
                     f"Rejecting setup due to critical warnings: {setup.get('warning_messages', [])}")
-                continue
-
-            # Check market pressure alignment
-            if respect_pressure and self._is_pressure_contradictory(setup['position_type'], market_pressure):
-                logger.info(
-                    f"Rejecting setup due to contradictory market pressure: {market_pressure}")
-                continue
-
-            # Determine if this is a strong order block
-            is_strong_ob = volume_ratio >= min_strong_ob_volume
-
-            # Check price direction vs order block type conflict
-            if self._is_ob_direction_conflict(setup['position_type'], price_direction, is_strong_ob):
-                logger.info(
-                    f"Rejecting setup due to price direction vs order block type conflict. " +
-                    f"Direction: {price_direction}, Position: {setup['position_type']}, Strong OB: {is_strong_ob}")
-                continue
-
-            # Check for critical warning messages
-            if respect_warnings and self._has_critical_warnings(setup):
-                logger.info(
-                    f"Rejecting setup due to critical warnings: {setup.get('warning_messages', [])}")
-                continue
-
-            # Check market pressure alignment
-            if respect_pressure and self._is_pressure_contradictory(setup['position_type'], market_pressure):
-                logger.info(
-                    f"Rejecting setup due to contradictory market pressure: {market_pressure}")
                 continue
 
             # Determine position side
@@ -775,49 +745,6 @@ class FuturesStrategy:
                 if critical.lower() in warning.lower():
                     return True
 
-        return False
-
-    def _determine_price_direction(self, price_data: pd.DataFrame) -> str:
-        """
-        Determine if price is in an uptrend or downtrend using recent price action.
-
-        Returns:
-        --------
-        'UP', 'DOWN', or 'NEUTRAL'
-        """
-        if price_data is None or len(price_data) < 20:
-            return 'NEUTRAL'
-
-        # Get recent closing prices
-        recent_closes = price_data['close'].values[-20:]
-
-        # Calculate short-term and medium-term EMAs
-        short_ema = np.mean(recent_closes[-5:])  # Last 5 candles
-        medium_ema = np.mean(recent_closes[-15:])  # Last 15 candles
-
-        # Check price momentum using EMAs
-        if short_ema > medium_ema * 1.005:  # 0.5% threshold for uptrend
-            return 'UP'
-        elif short_ema < medium_ema * 0.995:  # 0.5% threshold for downtrend
-            return 'DOWN'
-        else:
-            return 'NEUTRAL'
-
-    def _is_ob_direction_conflict(self, position_type: str, price_direction: str, is_strong_ob: bool) -> bool:
-
-        if price_direction == 'NEUTRAL':
-            return False
-
-        if is_strong_ob:
-            return False
-
-        # Check for conflicts
-        if position_type == 'LONG' and price_direction == 'DOWN':
-            return True
-        elif position_type == 'SHORT' and price_direction == 'UP':
-            return True
-
-        # No conflict
         return False
 
 

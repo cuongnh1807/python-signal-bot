@@ -6,7 +6,7 @@
       "max_risk_per_trade": 0.02,
       "leverage": 10,
       "window_size": 300,
-      "min_setup_quality": 70.0,
+      "min_setup_quality": 60,
       "min_volume_ratio": 1.5,
       "max_distance_to_current_price": 2
     },
@@ -16,7 +16,7 @@
       "max_risk_per_trade": 0.015,
       "leverage": 10,
       "window_size": 300,
-      "min_setup_quality": 70,
+      "min_setup_quality": 65,
       "min_volume_ratio": 1.2,
       "max_distance_to_current_price": 1
     },
@@ -26,7 +26,7 @@
       "max_risk_per_trade": 0.01,
       "leverage": 10,
       "window_size": 300,
-      "min_setup_quality": 70,
+      "min_setup_quality": 65,
       "min_volume_ratio": 1.2,
       "max_distance_to_current_price": 1
     }

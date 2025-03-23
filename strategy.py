@@ -162,27 +162,28 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
                                       ob_direction: int,
                                       ) -> dict:
     """
-    Calculate dynamic risk percentage with momentum analysis
+    Calculate dynamic risk percentage with enhanced momentum analysis
     """
 
     # Calculate momentum indicators
     momentum_data = calculate_price_momentum(data, lookback=20)
 
-    # Initialize risk factors dictionary
+    # Initialize risk factors dictionary with balanced weights - giữ tổng là 1.0
     risk_factors = {
-        'momentum': {'score': 0, 'weight': 0.4, 'contribution': 0},
-        'volume': {'score': 0, 'weight': 0.2, 'contribution': 0},
-        'ob_quality': {'score': 0, 'weight': 0.4, 'contribution': 0},
+        'momentum': {'score': 0, 'weight': 0.40, 'contribution': 0},
+        'volume': {'score': 0, 'weight': 0.30, 'contribution': 0},
+        'ob_quality': {'score': 0, 'weight': 0.20, 'contribution': 0},
+        'trend_alignment': {'score': 0, 'weight': 0.10, 'contribution': 0},
     }
 
     warning_messages = []
 
-    # 1. Evaluate Momentum
+    # 1. Evaluate Momentum - giữ nguyên như phiên bản cũ để đảm bảo điểm tương tự
     short_term_change = momentum_data['momentum']['short_term']['pct_change']
     momentum_direction = momentum_data['momentum']['short_term']['direction']
     candle_momentum = momentum_data['candle_momentum']['score']
 
-    # Calculate momentum score (0-100)
+    # Calculate momentum score (0-100) - về cơ bản giống với phiên bản cũ
     momentum_score = 50  # Base score
 
     if ob_direction == 1:  # Bullish OB
@@ -190,8 +191,7 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
             momentum_score += short_term_change * 3
             momentum_score += candle_momentum * 0.7
         else:
-            momentum_score -= abs(short_term_change) * \
-                2
+            momentum_score -= abs(short_term_change) * 2
             momentum_score -= (100 - candle_momentum) * 0.3
     else:  # Bearish OB
         if momentum_direction == -1:
@@ -202,9 +202,24 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
             momentum_score -= (100 - candle_momentum) * 0.3
 
     momentum_score = max(0, min(100, momentum_score))  # Giới hạn giữa 0-100
-
     risk_factors['momentum']['score'] = momentum_score
 
+    # 2. Evaluate Trend Alignment (NEW) - có điểm cơ sở cao hơn
+    trend_strength = momentum_data['trend_strength']['score']
+    trend_direction = 1 if trend_strength > 50 else -1
+
+    # Calculate trend alignment score với base score cao hơn
+    if (ob_direction == 1 and trend_direction == 1) or (ob_direction == -1 and trend_direction == -1):
+        # Setup aligned with trend - base cao hơn
+        trend_alignment_score = 70 + (abs(trend_strength - 50) * 0.6)
+    else:
+        # Setup against trend - cũng tăng base score
+        trend_alignment_score = 50 - (abs(trend_strength - 50) * 0.4)
+
+    trend_alignment_score = max(0, min(100, trend_alignment_score))
+    risk_factors['trend_alignment']['score'] = trend_alignment_score
+
+    # Add warning messages for momentum
     if ob_direction == 1:  # Bullish OB
         if momentum_direction == -1 and abs(short_term_change) > 1:
             warning_messages.append(
@@ -218,21 +233,29 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
         elif momentum_direction == 1:
             warning_messages.append("⚡ Moderate bullish pressure present")
 
-    # 2. Evaluate Volume
+    # 3. Evaluate Volume - bỏ thang logarit để đảm bảo điểm đầy đủ
+    # Sử dụng trực tiếp không điều chỉnh
     risk_factors['volume']['score'] = volume_score
+
     if volume_score < 40:
         warning_messages.append("📊 Low volume confidence")
+    elif volume_score > 85:
+        warning_messages.append("📈 Extremely high volume - potential climax")
 
-    # 3. Evaluate Order Block Quality
+    # 4. Evaluate Order Block Quality - giữ tương tự phiên bản cũ
+    # Giữ nguyên hệ số 2 như cũ
     ob_quality = 100 - min(100, ob_height_percent * 2)
+
+    # Bonus cho OB nhỏ, nhưng ít hơn
+    if ob_height_percent < 1.5:
+        ob_quality += 5  # Giảm bonus từ 10 xuống 5
+
+    ob_quality = max(0, min(100, ob_quality))
     risk_factors['ob_quality']['score'] = ob_quality
 
     if ob_quality < 50:
         warning_messages.append(
             "📐 Large order block height - reduced precision")
-
-    # 4. Evaluate Price Action
-    trend_strength = momentum_data['trend_strength']['score']
 
     # Calculate weighted setup quality
     setup_quality = 0
@@ -241,19 +264,54 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
         values['contribution'] = contribution
         setup_quality += contribution
 
+    # Apply dynamic adjustments với mức phạt giảm và mức thưởng tăng
+
+    # 1. Giảm mức phạt cho tín hiệu mâu thuẫn
+    if abs(risk_factors['momentum']['score'] - risk_factors['trend_alignment']['score']) > 40:
+        # Giảm từ 0.9 (10% penalty) xuống 0.95 (5% penalty)
+        setup_quality *= 0.95
+        warning_messages.append("⚖️ Conflicting momentum and trend signals")
+
+    # 2. Loại bỏ phạt cho volume cao + OB kém
+
+    # 3. Thưởng nhiều hơn và điều kiện dễ hơn
+    # Giảm ngưỡng từ 65 xuống 60
+    all_factors_good = all(
+        values['score'] >= 60 for factor, values in risk_factors.items())
+    if all_factors_good:
+        setup_quality *= 1.15  # Tăng từ 1.1 (10% bonus) lên 1.15 (15% bonus)
+        warning_messages.append(
+            "✅ High-quality setup with all factors aligned")
+
     # Determine trade recommendation
-    if setup_quality >= 80:
-        trade_recommendation = "Strong setup - Consider full position size"
+    if setup_quality >= 85:
+        trade_recommendation = "Excellent setup - Consider full position size"
+    elif setup_quality >= 75:
+        trade_recommendation = "Very good setup - Consider 80-90% position size"
     elif setup_quality >= 65:
         trade_recommendation = "Good setup - Consider moderate position size"
-    elif setup_quality >= 50:
-        trade_recommendation = "Moderate setup - Consider reduced position size"
+    elif setup_quality >= 55:
+        trade_recommendation = "Above average - Consider 50-60% position size"
+    elif setup_quality >= 45:
+        trade_recommendation = "Average setup - Consider reduced position size"
+    elif setup_quality >= 35:
+        trade_recommendation = "Below average - Consider minimal position"
     else:
-        trade_recommendation = "Weak setup - Consider avoiding or minimal position"
+        trade_recommendation = "Weak setup - Consider avoiding this trade"
 
-    # Calculate final risk percentage based on setup quality
+    # Calculate final risk percentage
     base_risk = 1.0
-    risk_multiplier = setup_quality / 100
+
+    # Progressive risk scaling - giữ thang điểm tương tự
+    if setup_quality >= 80:
+        risk_multiplier = 0.8 + (setup_quality - 80) * 0.01
+    elif setup_quality >= 60:
+        risk_multiplier = 0.6 + (setup_quality - 60) * 0.01
+    elif setup_quality >= 40:
+        risk_multiplier = 0.4 + (setup_quality - 40) * 0.01
+    else:
+        risk_multiplier = setup_quality / 100 * 0.4
+
     risk_percentage = base_risk * risk_multiplier
 
     return {
@@ -477,6 +535,7 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
             'current_price': current_price,
             'type': setup_type,
             'atr': ob_results[i]['atr'],
+            'strength': ob_results[i]['strength'],
             'ob_direction': 'Bullish' if ob_direction == 1 else 'Bearish',
             'current_trend': current_trend,
             'ob_levels': {'top': ob_top, 'bottom': ob_bottom},
@@ -488,7 +547,6 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
             'suggested_leverage': suggested_leverage,
             'setup_quality': risk_assessment['setup_quality'],
             'entry_quality': entry_quality,
-            'trade_recommendation': risk_assessment['trade_recommendation'],
             'warning_messages': risk_assessment['warning_messages'],
             'risk_factors': risk_assessment['risk_factors'],
             'risk_rating': 'Low' if risk_percentage <= 0.5 else

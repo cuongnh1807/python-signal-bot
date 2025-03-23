@@ -167,7 +167,7 @@ def detect_pivot_volume_order_blocks(
                     top = bottom + min_height
 
                 ob = {
-                    'direction': 'bullish',
+                    'direction': 1,
                     'left_time': df.index[k],
                     'top': top,
                     'bottom': bottom,
@@ -232,7 +232,7 @@ def detect_pivot_volume_order_blocks(
                     bottom = top - min_height
 
                 ob = {
-                    'direction': 'bearish',
+                    'direction': -1,
                     'left_time': df.index[k],
                     'top': top,
                     'bottom': bottom,

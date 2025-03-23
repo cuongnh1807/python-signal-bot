@@ -683,12 +683,12 @@ class LiveTradingBot:
             new_order_signatures = set()
             if new_orders:
                 # Create signatures for new orders for later comparison
-                for order in new_orders:
+                for order, index in enumerate(new_orders):
 
                     # Create a unique signature based on key order properties
                     signature = f"{order['side']}_{round_step_size(order['entry_price'], float(self.symbol_precision['tickSize'])):.2f}"
                     new_order_signatures.add(signature)
-                    order['signature'] = signature
+                    new_orders[index]['signature'] = signature
 
                 self._process_new_orders(new_orders)
             else:
@@ -1145,8 +1145,8 @@ class LiveTradingBot:
                     continue
 
                 # Create signature for this order
-                order_signature = f"{order['side']}_{round_step_size(order['entry_price'], float(self.symbol_precision['tickSize'])):.2f}"
-
+                order_signature = order['signature']
+                print("order_signature", order_signature)
                 # If this order signature is not in the new recommendations, cancel it
                 if order_signature not in new_order_signatures:
                     logger.info(
@@ -1290,7 +1290,7 @@ class LiveTradingBot:
         while self.running:
             try:
                 self._check_order_status()
-                time.sleep(60 * 5)  # Check every 10 mi
+                time.sleep(60 * 3)  # Check every 3 minutes
             except Exception as e:
                 error_msg = f"Error in status check loop: {str(e)}"
                 logger.error(error_msg)

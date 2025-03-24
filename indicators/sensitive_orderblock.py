@@ -7,6 +7,8 @@ import matplotlib.dates as mdates
 from binance.client import Client
 
 from binance_data_fetcher import BinanceDataFetcher
+from indicators.candles import should_keep_ob
+from indicators.rsi import calculate_macd
 
 
 def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
@@ -77,7 +79,7 @@ def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
     return merged_obs
 
 
-def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_alert=True, sell_alert=True, volume_lookback=20, merge_threshold=0.5, max_blocks=10):
+def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_alert=True, sell_alert=True, volume_lookback=20, merge_threshold=0.5, max_blocks=10, atr_period=14, strength_threshold=65):
     """
     Detect bullish and bearish order blocks in a financial dataset based on Pine Script logic.
 
@@ -90,6 +92,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
     - volume_lookback (int): Lookback period for volume moving average.
     - merge_threshold (float): Threshold for merging overlapping order blocks (0-1).
     - max_blocks (int): Maximum number of order blocks to retain (like max_boxes_count in PineScript).
+    - atr_period (int): Lookback period for ATR calculation.
 
     Returns:
     - list: Combined list of active order blocks (both bearish and bullish).
@@ -99,6 +102,10 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
 
     # Đảm bảo DataFrame có index số nguyên cho tính toán
     df = df.reset_index(drop=True)
+    macd_info = calculate_macd(df)
+    df['macd'] = macd_info['macd']
+    df['macd_signal'] = macd_info['signal']
+    df['macd_hist'] = macd_info['histogram']
 
     # Tính toán khối lượng trung bình nếu có dữ liệu khối lượng
     has_volume = 'volume' in df.columns
@@ -106,6 +113,17 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
         df['volume_ma'] = df['volume'].rolling(volume_lookback).mean()
         df['volume_ma'] = df['volume_ma'].fillna(
             df['volume'].iloc[0] if len(df) > 0 else 0)
+
+    # Tính toán ATR cho height_strength
+    df['tr'] = np.maximum(
+        df['high'] - df['low'],
+        np.maximum(
+            abs(df['high'] - df['close'].shift(1)),
+            abs(df['low'] - df['close'].shift(1))
+        )
+    )
+    df['atr'] = df['tr'].rolling(atr_period).mean()
+    df['atr'] = df['atr'].fillna(df['tr'].mean())
 
     # Calculate ROC
     df['pc'] = (df['open'] - df['open'].shift(4)) / df['open'].shift(4) * 100
@@ -122,6 +140,9 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
     df['crossover_close'] = (df['pc_close'].shift(
         1) < sens) & (df['pc_close'] >= sens)
     df['crossover'] = df['crossover_open'] | df['crossover_close']
+
+    # Lưu lịch sử các order block cho việc tính toán historical_count
+    historical_obs = []
 
     # Initialize lists for active order blocks
     bearish_obs = []
@@ -148,8 +169,10 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                                     df.loc[max(0, lookback_idx-10):lookback_idx, 'low'].mean())
                         if candle_size > 0.15 * avg_size:
                             ob = create_block(
-                                df, lookback_idx, 'bearish', original_index, has_volume)
-                            bearish_obs.append(ob)
+                                df, lookback_idx, -1, original_index, has_volume, historical_obs)
+                            if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df) - 1):
+                                bearish_obs.append(ob)
+                                historical_obs.append(ob)
                         break
 
         # Bullish order block creation
@@ -167,19 +190,20 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                                     df.loc[max(0, lookback_idx-10):lookback_idx, 'low'].mean())
                         if candle_size > 0.15 * avg_size:
                             ob = create_block(
-                                df, lookback_idx, 'bullish', original_index, has_volume)
-                            bullish_obs.append(ob)
+                                df, lookback_idx, 1, original_index, has_volume, historical_obs)
+
+                            if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df) - 1):
+                                bullish_obs.append(ob)
+                                historical_obs.append(ob)
                         break
 
-        # Mitigation check (skip first bar due to shift for "Close")
         if idx > 0:
-            # Xác định giá trị sử dụng cho việc vô hiệu hóa order block dựa trên OBMitigationType
             if OBMitigationType == "Close":
                 bear_mitigation = df.loc[idx - 1, 'close']
                 bull_mitigation = df.loc[idx - 1, 'close']
             else:  # "Wick"
-                bear_mitigation = df.loc[idx, 'high']  # Current bar’s high
-                bull_mitigation = df.loc[idx, 'low']   # Current bar’s low
+                bear_mitigation = df.loc[idx, 'high']  # Current bar's high
+                bull_mitigation = df.loc[idx, 'low']   # Current bar's low
 
             # Remove mitigated bearish order blocks
             mitigated_bearish = []
@@ -231,43 +255,77 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
     return bearish_obs + bullish_obs
 
 
-def create_block(df, idx, direction, original_index, has_volume):
+def create_block(df, idx, direction, original_index, has_volume, historical_obs=None):
     """Tạo order block dictionary với đầy đủ thông tin"""
     # Tính toán kích thước thực của nến
     candle_body = abs(df.at[idx, 'close'] - df.at[idx, 'open'])
     candle_range = df.at[idx, 'high'] - df.at[idx, 'low']
     body_percent = candle_body / candle_range if candle_range > 0 else 0
 
-    # Tính momentum của nến
-    momentum = 0
-    if idx > 0:
-        prev_range = df.at[idx-1, 'high'] - df.at[idx-1, 'low']
-        momentum_ratio = candle_range / prev_range if prev_range > 0 else 1
-        momentum = min(int(momentum_ratio * 100), 200)
+    # Tính chiều cao của OB
+    top = df.at[idx, 'high']
+    bottom = df.at[idx, 'low']
+    height = top - bottom
 
+    # Tạo OB cơ bản
     ob = {
         'index': idx,
         'left_time': original_index[idx],
-        'top': df.at[idx, 'high'],
-        'bottom': df.at[idx, 'low'],
+        'top': top,
+        'bottom': bottom,
         'direction': direction,
         'mitigated_time': None,
+        'avg': (top + bottom) / 2,
+        'height': height,
+        'atr': df.at[idx, 'atr'],
+        'height_atr_ratio': height / df.at[idx, 'atr'] if df.at[idx, 'atr'] > 0 else 1,
+        'body_size': candle_body,
         'volume': 0,
-        # Kết hợp body% và momentum
-        'strength': int((body_percent * 100 + momentum) / 2),
-        'avg': (df.at[idx, 'high'] + df.at[idx, 'low'])/2,
-        'body_size': candle_body
+        'historical_count': 0,
+        'recent_count': 0,
+        'strength': 0
     }
 
+    # Tính toán các số liệu tương tự như trong pivot_volume_orderblock.py
+
+    # 1. Volume strength
+    volume_strength = 0
     if has_volume:
-        vol = sum(df.at[i, 'volume']
-                  for i in [idx, idx+1, idx+2] if i < len(df))
+        vol = df.at[idx, 'volume']
         ob['volume'] = vol
-        vol_ma = df.at[idx, 'volume_ma']
-        if vol_ma > 0:
-            # Kết hợp độ mạnh từ khối lượng và kích thước nến
-            vol_strength = min(int((vol / vol_ma) * 100), 100)
-            ob['strength'] = int((vol_strength + ob['strength']) / 2)
+        volume_ma = df.at[idx, 'volume_ma']
+        volume_ratio = vol / volume_ma if volume_ma > 0 else 1
+        volume_strength = min(volume_ratio * 40, 40)  # Tối đa 40 điểm
+
+    # 2. Height strength
+    height_ratio = ob['height_atr_ratio']
+    height_strength = min(height_ratio * 35, 35)  # Tối đa 35 điểm
+
+    # 3. Historical strength
+    historical_count = 0
+    recent_count = 0
+    if historical_obs:
+        ob_price_range = height * 1.5
+
+        for other_ob in historical_obs:
+            other_avg = (other_ob['top'] + other_ob['bottom']) / 2
+            if abs(ob['avg'] - other_avg) <= ob_price_range:
+                historical_count += 1
+                # Xác định 'gần đây' dựa vào index
+                if abs(idx - other_ob['index']) <= 100:
+                    recent_count += 1
+
+    ob['historical_count'] = historical_count
+    ob['recent_count'] = recent_count
+
+    if recent_count >= 3:
+        historical_strength = max(5, 15 - (recent_count - 2) * 5)
+    else:
+        historical_strength = min(historical_count * 4, 25)
+
+    # Tính tổng strength
+    ob['strength'] = int(
+        volume_strength + height_strength + historical_strength)
 
     return ob
 
@@ -335,8 +393,8 @@ if __name__ == "__main__":
         data, 0.28, merge_threshold=0.7)
 
     # Tách order blocks theo hướng
-    bullish_obs = [ob for ob in order_blocks if ob['direction'] == 'bullish']
-    bearish_obs = [ob for ob in order_blocks if ob['direction'] == 'bearish']
+    bullish_obs = [ob for ob in order_blocks if ob['direction'] == 1]
+    bearish_obs = [ob for ob in order_blocks if ob['direction'] == -1]
 
     print("Active Bearish Order Blocks:", bearish_obs)
     print("Active Bullish Order Blocks:", bullish_obs)

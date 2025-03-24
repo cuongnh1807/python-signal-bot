@@ -324,7 +324,7 @@ class LiveTradingBot:
                  fast_ema: int = 8,
                  slow_ema: int = 21,
                  volume_threshold: float = 2.0,
-                 check_interval: str = '10m'):
+                 check_interval: str = '3m'):
         """
         Initialize the live trading bot.
 
@@ -1289,7 +1289,7 @@ class LiveTradingBot:
         while self.running:
             try:
                 self._check_order_status()
-                time.sleep(60 * 3)  # Check every 3 minutes
+                time.sleep(60 * 5)  # Check every 3 minutes
             except Exception as e:
                 error_msg = f"Error in status check loop: {str(e)}"
                 logger.error(error_msg)

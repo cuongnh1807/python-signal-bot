@@ -324,7 +324,7 @@ class LiveTradingBot:
                  fast_ema: int = 8,
                  slow_ema: int = 21,
                  volume_threshold: float = 2.0,
-                 check_interval: str = '5m'):
+                 check_interval: str = '10m'):
         """
         Initialize the live trading bot.
 
@@ -1302,10 +1302,8 @@ class LiveTradingBot:
 
         while self.running:
             try:
-                # Cập nhật vốn trước khi phân tích
                 self._update_capital()
 
-                # Calculate time until next check interval closes (5m)
                 now = datetime.now()
                 check_interval = self.check_interval
 

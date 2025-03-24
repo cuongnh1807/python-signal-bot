@@ -452,6 +452,7 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
 
     # Analyze each order block
     for i in range(len(ob_results)):
+        print("ob_results[i]", ob_results[i])
         ob_volume = ob_results[i]['volume']
         ob_direction = ob_results[i]["direction"]
         ob_top = ob_results[i]["top"]

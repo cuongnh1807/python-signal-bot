@@ -59,6 +59,7 @@ def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
                         'bottom': min(current_ob['bottom'], next_ob['bottom']),
                         'left_time': min(current_ob['left_time'], next_ob['left_time']),
                         'direction': current_ob['direction'],
+                        'atr': max(current_ob['atr'] or 0, next_ob['atr'] or 0),
                         'mitigated_time': None,
                         'avg': (max(current_ob['top'], next_ob['top']) +
                                 min(current_ob['bottom'], next_ob['bottom'])) / 2,
@@ -256,7 +257,6 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
 
 
 def create_block(df, idx, direction, original_index, has_volume, historical_obs=None):
-    """Tạo order block dictionary với đầy đủ thông tin"""
     # Tính toán kích thước thực của nến
     candle_body = abs(df.at[idx, 'close'] - df.at[idx, 'open'])
     candle_range = df.at[idx, 'high'] - df.at[idx, 'low']
@@ -267,7 +267,6 @@ def create_block(df, idx, direction, original_index, has_volume, historical_obs=
     bottom = df.at[idx, 'low']
     height = top - bottom
 
-    # Tạo OB cơ bản
     ob = {
         'index': idx,
         'left_time': original_index[idx],
@@ -277,8 +276,8 @@ def create_block(df, idx, direction, original_index, has_volume, historical_obs=
         'mitigated_time': None,
         'avg': (top + bottom) / 2,
         'height': height,
-        'atr': df.at[df.index[idx], 'atr'],
-        'height_atr_ratio': height / df.at[df.index[idx], 'atr'] if df.at[df.index[idx], 'atr'] > 0 else 1,
+        'atr': df['atr'].iloc[idx] or 0,
+        'height_atr_ratio': (top - bottom) / df['atr'].iloc[idx],
         'body_size': candle_body,
         'volume': 0,
         'historical_count': 0,
@@ -286,14 +285,12 @@ def create_block(df, idx, direction, original_index, has_volume, historical_obs=
         'strength': 0
     }
 
-    # Tính toán các số liệu tương tự như trong pivot_volume_orderblock.py
-
     # 1. Volume strength
     volume_strength = 0
     if has_volume:
-        vol = df.at[idx, 'volume']
+        vol = df.at[df.index[idx], 'volume']
         ob['volume'] = vol
-        volume_ma = df.at[idx, 'volume_ma']
+        volume_ma = df.at[df.index[idx], 'volume_ma']
         volume_ratio = vol / volume_ma if volume_ma > 0 else 1
         volume_strength = min(volume_ratio * 40, 40)  # Tối đa 40 điểm
 
@@ -323,7 +320,6 @@ def create_block(df, idx, direction, original_index, has_volume, historical_obs=
     else:
         historical_strength = min(historical_count * 4, 25)
 
-    # Tính tổng strength
     ob['strength'] = int(
         volume_strength + height_strength + historical_strength)
 

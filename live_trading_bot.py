@@ -1167,7 +1167,8 @@ class LiveTradingBot:
                         f"Side: <b>{order['side']}</b>\n"
                         f"Setup: <b>{order['setup_type']}</b>\n"
                         f"Entry: <b>${order['entry_price']:.2f}</b>\n"
-                        f"Reason: <b>No longer recommended by strategy</b>"
+                        f"Reason: <b>No longer recommended by strategy</b>",
+                        topic_id=self.telegram.orders_topic_id
                     )
 
         except Exception as e:
@@ -1231,7 +1232,7 @@ class LiveTradingBot:
             self.telegram.notify_error(error_msg)
 
     def start(self):
-        """Start the trading bot"""
+        """Start the trading bot with cronjob-based data fetching"""
         if self.running:
             logger.warning("Trading bot is already running")
             return
@@ -1243,23 +1244,15 @@ class LiveTradingBot:
             # Fetch initial data
             self._fetch_initial_data()
 
-            # Khởi động WebSocket trong một thread riêng
-            self.socket_thread = threading.Thread(
-                target=lambda: asyncio.run(self._start_socket()))
-            self.socket_thread.daemon = True
-            self.socket_thread.start()
-
-            logger.info(f"Started WebSocket connection for {self.symbol}")
-
             # Start order status checking thread
             self.status_thread = threading.Thread(
                 target=self._status_check_loop)
             self.status_thread.daemon = True
             self.status_thread.start()
 
-            # Start market analysis thread
+            # Start market analysis thread with cronjob
             self.analysis_thread = threading.Thread(
-                target=self._analysis_loop)
+                target=self._cronjob_analysis_loop)
             self.analysis_thread.daemon = True
             self.analysis_thread.start()
 
@@ -1296,69 +1289,40 @@ class LiveTradingBot:
                 self.telegram.notify_error(error_msg)
                 time.sleep(30)  # Wait longer on error
 
-    def _analysis_loop(self):
-        """Continuously run market analysis at interval boundaries"""
-        last_full_analysis_time = None
-
+    def _cronjob_analysis_loop(self):
+        """Run market analysis based on cronjob schedule (every 3 minutes)"""
         while self.running:
             try:
                 self._update_capital()
 
                 now = datetime.now()
-                check_interval = self.check_interval
+                current_minute = now.minute
 
-                # Calculate time until next candle
-                if check_interval.endswith('m'):
-                    # For minute-based intervals
-                    minutes = int(check_interval[:-1])
-                    current_minute = now.minute
-                    minutes_to_next = minutes - (current_minute % minutes)
-                    if minutes_to_next == 0:
-                        minutes_to_next = minutes
-                    seconds_to_next = minutes_to_next * 60 - now.second
-                elif check_interval.endswith('h'):
-                    # For hour-based intervals
-                    hours = int(check_interval[:-1])
-                    current_hour = now.hour
-                    hours_to_next = hours - (current_hour % hours)
-                    if hours_to_next == 0:
-                        hours_to_next = hours
-                    seconds_to_next = hours_to_next * \
-                        3600 - (now.minute * 60 + now.second)
-                else:
-                    # Default to 1 minute if interval format is unknown
-                    seconds_to_next = 60 - now.second
+                # Check if current minute is divisible by 3 (0,3,6,9,12,15,18,21,...57)
+                if current_minute % 5 == 0:
+                    logger.info(f"Running analysis at minute {current_minute}")
 
-                # Add a small buffer to ensure the candle has closed
-                seconds_to_next += 2
-
-                # Sleep until next check interval
-                logger.info(f"Next check in {seconds_to_next} seconds")
-                time.sleep(seconds_to_next)
-
-                # Run analysis if we're still running
-                if self.running:
-                    # Fetch newest data before analyzing
+                    # Fetch newest data
                     self._fetch_latest_data()
 
-                    # Determine if we should run a full analysis based on the main interval (15m)
-                    # Only run full analysis if aligned with the main interval or forced
-                    main_interval_closed = self._is_main_interval_closed(
-                        last_full_analysis_time)
+                    # Run analysis
+                    self._run_analysis()
 
-                    if main_interval_closed:
-                        logger.info(
-                            f"Running full analysis on closed {self.interval} candle")
-                        self._run_analysis()
-                        last_full_analysis_time = datetime.now()
-                    else:
-                        # Vẫn cập nhật giá và kiểm tra các lệnh hiện tại
-                        logger.info(
-                            f"Updating price data only (waiting for {self.interval} candle to close)")
-                        self._check_order_status()
+                    # Sleep for 3 minutes to avoid multiple runs in the same minute
+                    time.sleep(180)  # 3 minutes = 180 seconds
+                else:
+                    # Calculate time until next 3-minute interval
+                    minutes_to_next = 3 - (current_minute % 3)
+                    seconds_to_next = minutes_to_next * 60 - now.second
+
+                    # Add a small buffer
+                    seconds_to_next += 2
+
+                    logger.info(f"Next analysis in {seconds_to_next} seconds")
+                    time.sleep(seconds_to_next)
 
             except Exception as e:
-                error_msg = f"Error in analysis loop: {str(e)}"
+                error_msg = f"Error in cronjob analysis loop: {str(e)}"
                 logger.error(error_msg)
                 self.telegram.notify_error(error_msg)
                 time.sleep(60)  # Wait a minute before trying again
@@ -1500,7 +1464,7 @@ if __name__ == "__main__":
     # Keep the main thread running
     try:
         while True:
-            time.sleep(60 * 15)  # Check status every 15 minutes
+            time.sleep(60 * 20)  # Check status every 15 minutes
             status = bot.get_status()
             logger.info(f"Bot status: {status}")
     except KeyboardInterrupt:

@@ -500,7 +500,6 @@ class LiveTradingBot:
                 symbol=self.symbol,
                 interval=self.interval,
                 start_time=start_time,
-                limit=self.window_size
             )
 
             logger.info(f"Fetched {len(self.historical_data)} initial candles")
@@ -1339,7 +1338,6 @@ class LiveTradingBot:
                 symbol=self.symbol,
                 interval=self.interval,
                 start_time=start_time,
-                limit=self.window_size
             )
 
             # Update current price

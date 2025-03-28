@@ -170,10 +170,10 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
 
     # Initialize risk factors dictionary with balanced weights - giữ tổng là 1.0
     risk_factors = {
-        'momentum': {'score': 0, 'weight': 0.40, 'contribution': 0},
+        'momentum': {'score': 0, 'weight': 0.35, 'contribution': 0},
         'volume': {'score': 0, 'weight': 0.30, 'contribution': 0},
-        'ob_quality': {'score': 0, 'weight': 0.20, 'contribution': 0},
-        'trend_alignment': {'score': 0, 'weight': 0.10, 'contribution': 0},
+        'ob_quality': {'score': 0, 'weight': 0.3, 'contribution': 0},
+        'trend_alignment': {'score': 0, 'weight': 0.1, 'contribution': 0},
     }
 
     warning_messages = []
@@ -210,10 +210,8 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
 
     # Calculate trend alignment score với base score cao hơn
     if (ob_direction == 1 and trend_direction == 1) or (ob_direction == -1 and trend_direction == -1):
-        # Setup aligned with trend - base cao hơn
         trend_alignment_score = 70 + (abs(trend_strength - 50) * 0.6)
     else:
-        # Setup against trend - cũng tăng base score
         trend_alignment_score = 50 - (abs(trend_strength - 50) * 0.4)
 
     trend_alignment_score = max(0, min(100, trend_alignment_score))
@@ -233,8 +231,6 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
         elif momentum_direction == 1:
             warning_messages.append("⚡ Moderate bullish pressure present")
 
-    # 3. Evaluate Volume - bỏ thang logarit để đảm bảo điểm đầy đủ
-    # Sử dụng trực tiếp không điều chỉnh
     risk_factors['volume']['score'] = volume_score
 
     if volume_score < 40:
@@ -242,13 +238,10 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
     elif volume_score > 85:
         warning_messages.append("📈 Extremely high volume - potential climax")
 
-    # 4. Evaluate Order Block Quality - giữ tương tự phiên bản cũ
-    # Giữ nguyên hệ số 2 như cũ
     ob_quality = 100 - min(100, ob_height_percent * 2)
 
-    # Bonus cho OB nhỏ, nhưng ít hơn
     if ob_height_percent < 1.5:
-        ob_quality += 5  # Giảm bonus từ 10 xuống 5
+        ob_quality += 5
 
     ob_quality = max(0, min(100, ob_quality))
     risk_factors['ob_quality']['score'] = ob_quality
@@ -272,10 +265,6 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
         setup_quality *= 0.95
         warning_messages.append("⚖️ Conflicting momentum and trend signals")
 
-    # 2. Loại bỏ phạt cho volume cao + OB kém
-
-    # 3. Thưởng nhiều hơn và điều kiện dễ hơn
-    # Giảm ngưỡng từ 65 xuống 60
     all_factors_good = all(
         values['score'] >= 60 for factor, values in risk_factors.items())
     if all_factors_good:
@@ -452,7 +441,6 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
 
     # Analyze each order block
     for i in range(len(ob_results)):
-        print("ob_results[i]", ob_results[i])
         ob_volume = ob_results[i]['volume']
         ob_direction = ob_results[i]["direction"]
         ob_top = ob_results[i]["top"]
@@ -473,7 +461,7 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
         )
 
         # Determine setup type based on OB direction, trend, and volume pressure
-        if ob_direction == "bullish":  # Bullish OB
+        if ob_direction == 1:  # Bullish OB
             if current_trend == 'DOWNTREND':
                 if volume_analysis['analysis']['pressure'] in ['Strong Buying', 'Moderate Buying']:
                     setup_type = "BOS"  # Break of Structure

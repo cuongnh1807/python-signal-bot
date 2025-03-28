@@ -236,7 +236,6 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                 print(
                     f"Buy alert at bar {idx}: Price entered bullish OB from bar {ob['index']}")
 
-    # Giới hạn số lượng order block
     if max_blocks > 0:
         max_bearish = int(max_blocks * 0.6)
         max_bullish = max_blocks - max_bearish
@@ -383,7 +382,7 @@ if __name__ == "__main__":
     fetchData = BinanceDataFetcher(client)
     start_time = datetime.now() - timedelta(days=7)
     data = fetchData.get_historical_klines(
-        args.symbol, interval=args.interval, start_time=start_time)
+        args.symbol, interval=args.interval, start_time=start_time, limit=710)
     order_blocks = detect_order_sensitive_blocks(
         data, 0.28, merge_threshold=0.7)
 

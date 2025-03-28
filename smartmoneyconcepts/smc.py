@@ -385,7 +385,7 @@ class smc:
     ):
         if type_orderblock == "sensitive":
             return detect_order_sensitive_blocks(
-                ohlc, buy_alert=False, sell_alert=False)
+                ohlc, 0.28, merge_threshold=0.7)
         elif type_orderblock == "pivot_volume":
             _, order_blocks = detect_pivot_volume_order_blocks(
                 ohlc, length=5,

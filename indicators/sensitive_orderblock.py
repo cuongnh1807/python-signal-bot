@@ -42,7 +42,6 @@ def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
             current_range = current_ob['top'] - current_ob['bottom']
             next_range = next_ob['top'] - next_ob['bottom']
 
-            # Tìm phần chồng lấp
             overlap_top = min(current_ob['top'], next_ob['top'])
             overlap_bottom = max(current_ob['bottom'], next_ob['bottom'])
 

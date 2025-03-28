@@ -165,7 +165,7 @@ def detect_pivot_volume_order_blocks(
                     ob['strength'] = int(
                         volume_strength + height_strength + historical_strength)
 
-                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df) - 1):
+                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, i):
                         bull_obs.insert(0, ob)
                         df.at[current_time, 'bull_ob'] = bottom
 
@@ -230,7 +230,7 @@ def detect_pivot_volume_order_blocks(
                         volume_strength + height_strength + historical_strength)
                     print("ob['strength']", ob['strength'])
 
-                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df) - 1):
+                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, i):
                         bear_obs.insert(0, ob)
                         df.at[current_time, 'bear_ob'] = top
 

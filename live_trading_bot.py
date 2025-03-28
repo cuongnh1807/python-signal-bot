@@ -1299,7 +1299,7 @@ class LiveTradingBot:
                 current_minute = now.minute
 
                 # Check if current minute is divisible by 3 (0,3,6,9,12,15,18,21,...57)
-                if current_minute % 5 == 0:
+                if current_minute % 3 == 0:
                     logger.info(f"Running analysis at minute {current_minute}")
 
                     # Fetch newest data

@@ -79,7 +79,7 @@ def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
     return merged_obs
 
 
-def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_alert=True, sell_alert=True, volume_lookback=20, merge_threshold=0.5, max_blocks=10, atr_period=14, strength_threshold=65):
+def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_alert=False, sell_alert=False, volume_lookback=20, merge_threshold=0.5, max_blocks=10, atr_period=14, strength_threshold=70):
     """
     Detect bullish and bearish order blocks in a financial dataset based on Pine Script logic.
 

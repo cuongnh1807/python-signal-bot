@@ -26,7 +26,7 @@ def is_engulfing(df, i):
 def should_keep_ob(df, ob, current_index):
     ob_direction = ob['direction']
     valid_signals = 0
-    for i in range(current_index, max(current_index - 3, -1), -1):
+    for i in range(current_index, max(current_index - 2, -1), -1):
         pin_bar_signal = is_pin_bar(df.iloc[i])
         engulfing_signal = is_engulfing(df, i)
 

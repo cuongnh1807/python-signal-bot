@@ -1331,7 +1331,7 @@ class LiveTradingBot:
         try:
             # Calculate start time based on window size
             start_time = datetime.now() - timedelta(
-                seconds=self._get_interval_seconds(self.interval) * (self.window_size + 10))
+                seconds=self._get_interval_seconds(self.interval) * (self.window_size))
 
             # Fetch data
             self.historical_data = self.data_fetcher.get_historical_klines(

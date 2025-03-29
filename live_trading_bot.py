@@ -831,6 +831,8 @@ class LiveTradingBot:
         """Place stop loss order"""
         try:
             # Calculate quantity
+            if order['actual_entry_price'] == 0 or order['actual_entry_price'] == None:
+                order['actual_entry_price'] = self.current_price
             quantity = order['position_size'] / order['actual_entry_price']
             quantity = adjust_precision(
                 quantity, self.symbol_precision['quantityPrecision'])
@@ -864,8 +866,8 @@ class LiveTradingBot:
 
             # Split quantity among take profit levels
             tp_levels = len(order['take_profit'])
-            if order['actual_entry_price'] <= 0 or tp_levels <= 0:
-                return
+            if order['actual_entry_price'] <= 0 or order['actual_entry_price'] is None:
+                order['actual_entry_price'] = self.current_price
             qty_per_level = (order['position_size'] /
                              order['actual_entry_price']) / tp_levels
             qty_per_level = adjust_precision(

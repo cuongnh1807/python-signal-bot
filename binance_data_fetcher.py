@@ -34,9 +34,6 @@ class BinanceDataFetcher:
     def get_historical_klines(self, symbol: str, interval: str, start_time: datetime, limit: int = 1000) -> pd.DataFrame:
         """Fetch historical klines/candlestick data with proper time synchronization"""
         start_ms = int(start_time.timestamp() * 1000)
-
-        # Lưu ý: get_historical_klines không chấp nhận tham số timestamp
-        # Thay vào đó, chúng ta sẽ đồng bộ hóa thời gian trước khi gọi
         self.time_sync.sync_time()
 
         try:

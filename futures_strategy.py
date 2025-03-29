@@ -279,36 +279,33 @@ class FuturesStrategy:
     def _calculate_stop_from_ob(self, side: str, ob_bottom: float, ob_top: float,
                                 entry_price: float, volume_ratio: float,
                                 volatility: Optional[float] = None) -> float:
-        # Validate order block range
+
         if ob_top <= ob_bottom:
             raise ValueError("ob_top must be greater than ob_bottom")
 
-        # Calculate OB height with a volatility-adaptive minimum
         ob_height = ob_top - ob_bottom
-        min_height = volatility * 0.5 if volatility else entry_price * 0.001
-        ob_height = max(ob_height, min_height)
 
-        # Smooth buffer ratio based on volume
-        buffer_ratio = 0.3 + (0.3 * (min(volume_ratio, 10) / 10))
+        volume_factor = min(1.5, 0.5 + (volume_ratio / 10))
+        if volume_ratio >= 5:
+            buffer_pct = 0.5 * volume_factor
+        elif volume_ratio >= 2.3:
+            buffer_pct = 0.3 * volume_factor
+        else:
+            buffer_pct = 0.2 * volume_factor
 
-        min_stop_distance = entry_price * 0.005
+        buffer = ob_height * buffer_pct
+
+        min_distance = entry_price * 0.01 * volume_factor
+
         if volatility:
-            vol_multiplier = 1.0 + (min(volume_ratio, 10) / 10)
-            min_stop_distance = max(
-                min_stop_distance, volatility * vol_multiplier)
+            min_distance = max(min_distance, volatility * volume_factor)
 
-        # Final stop distance with volatility floor
-        stop_distance = max(ob_height * buffer_ratio, min_stop_distance)
-        if volatility:
-            stop_distance = max(stop_distance, volatility * 1.5)
-
-        # Calculate stop-loss price
         if side == "LONG":
-            buffer = ob_height * buffer_ratio
-            stop_loss = min(entry_price - stop_distance, ob_bottom - buffer)
+            stop_loss = ob_bottom - buffer
+            stop_loss = min(stop_loss, entry_price - min_distance)
         else:  # SHORT
-            buffer = ob_height * buffer_ratio
-            stop_loss = max(entry_price + stop_distance, ob_top + buffer)
+            stop_loss = ob_top + buffer
+            stop_loss = max(stop_loss, entry_price + min_distance)
 
         return stop_loss
 
@@ -317,7 +314,6 @@ class FuturesStrategy:
         if price_data is None or len(price_data) < 20:
             return None
 
-        # Simple ATR calculation
         high = price_data['high'].values[-20:]
         low = price_data['low'].values[-20:]
         close = price_data['close'].values[-20:]
@@ -346,7 +342,6 @@ class FuturesStrategy:
 
     def _adjust_position_size(self, base_size, volume_ratio, setup_quality):
         """Adjust position size based on volume and setup quality"""
-        # Volume-based adjustment
         if volume_ratio >= 10.0:
             volume_mult = 1.5
         elif volume_ratio >= 5.0:
@@ -356,69 +351,35 @@ class FuturesStrategy:
         else:
             volume_mult = 0.7
 
-        # Quality-based adjustment (0.8-1.2 range)
         quality_mult = 0.8 + (setup_quality / 100) * 0.4
 
         return base_size * volume_mult * quality_mult
 
     def _calculate_dynamic_take_profits(self, entry_price, stop_loss, side, setup_type, volume_ratio, atr=None):
-
+        """
+        Calculate take profits based on dynamic risk:reward ratio
+        """
         risk_distance = abs(entry_price - stop_loss)
 
-    # Volume multiplier with logarithmic scaling
-        volume_multiplier = 1.0 + \
-            (math.log1p(min(volume_ratio, 100)) / math.log(10))
+        if setup_type in ["REVERSAL", "BOS", "CHoCH"]:
+            tp_factors = {
+                'tp1': 1.0,
+                'tp2': 2.0 + (volume_ratio * 0.2),  # 2.0-3.0x
+                'tp3': 3.0 + (volume_ratio * 0.3)   # 3.0-4.5x
+            }
+        else:  # BREAKOUT, BREAKDOWN, CONTINUATION
+            tp_factors = {
+                'tp1': 0.8,
+                'tp2': 1.5 + (volume_ratio * 0.15),  # 1.5-2.25x
+                'tp3': 2.5 + (volume_ratio * 0.2)    # 2.5-3.5x
+            }
 
-    # Exact setup type matching
-        if setup_type == "REVERSAL" or setup_type == "BOS":
-            base_ratios = {'tp1': 1.0, 'tp2': 2.0, 'tp3': 3.5}
-        elif setup_type == "BREAKOUT" or setup_type == "BREAKDOWN":
-            base_ratios = {'tp1': 0.8, 'tp2': 1.8, 'tp3': 3.0}
-        elif setup_type == "CONTINUATION":
-            base_ratios = {'tp1': 1.0, 'tp2': 2.2, 'tp3': 3.2}
-        elif setup_type == "CHoCH":
-            base_ratios = {'tp1': 1.2, 'tp2': 2.5, 'tp3': 4.0}
-        else:
-            raise ValueError(f"Unknown setup_type: {setup_type}")
-
-    # Progressive scaling for TP levels
-        progressive_factors = {'tp1': 1.0, 'tp2': 1.1, 'tp3': 1.2}
-        tp_ratios = {k: v * volume_multiplier *
-                     progressive_factors[k] for k, v in base_ratios.items()}
-
-    # ATR-based adjustment
-        if atr is not None and atr > 0:
-            risk_atr_ratio = risk_distance / atr
-            atr_multiplier = 1.0 + \
-                (0.5 * (1.0 - math.tanh(risk_atr_ratio - 1.5)))
-            tp_ratios = {k: v * atr_multiplier for k, v in tp_ratios.items()}
-
-    # Calculate TP prices
         take_profits = {}
-        if atr is not None and atr > 0:
+        for level, factor in tp_factors.items():
             if side == "LONG":
-                for level, ratio in tp_ratios.items():
-                    take_profits[level] = entry_price + (atr * ratio)
+                take_profits[level] = entry_price + (risk_distance * factor)
             else:  # SHORT
-                for level, ratio in tp_ratios.items():
-                    take_profits[level] = entry_price - (atr * ratio)
-        else:
-            if side == "LONG":
-                for level, ratio in tp_ratios.items():
-                    take_profits[level] = entry_price + (risk_distance * ratio)
-            else:  # SHORT
-                for level, ratio in tp_ratios.items():
-                    take_profits[level] = entry_price - (risk_distance * ratio)
-
-    # Apply maximum TP constraint
-        max_tp_ratio = 5.0
-        for level in take_profits:
-            if side == "LONG":
-                take_profits[level] = min(
-                    take_profits[level], entry_price + (risk_distance * max_tp_ratio))
-            else:
-                take_profits[level] = max(
-                    take_profits[level], entry_price - (risk_distance * max_tp_ratio))
+                take_profits[level] = entry_price - (risk_distance * factor)
 
         return take_profits
 

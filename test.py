@@ -1,4 +1,79 @@
-import numpy as np
-A = [
-  {'current_price': 83133.48, 'type': 'LONG_PULLBACK', 'ob_direction': 'Bearish', 'current_trend': 'UPTREND', 'ob_level': '80780-81110', 'volume_score': 100, 'volume_ratio': np.float64(3.520572179134952), 'ob_volume': np.float64(1411.4228400000002), 'ob_volume_ratio': np.float64(3.520572179134952), 'risk_percentage': np.float64(0.9003181909216633), 'suggested_leverage': 55, 'setup_quality': np.float64(90.03181909216633), 'entry_quality': 'Excellent', 'trade_recommendation': 'Strong setup - Consider full position size', 'warning_messages': ['⚡ Moderate bullish pressure present'], 'risk_factors': {'momentum': {'score': np.float64(80.33126893690434), 'weight': 0.3, 'contribution': np.float64(24.0993806810713)}, 'volume': {'score': 100, 'weight': 0.2, 'contribution': 20.0}, 'ob_quality': {'score': np.float64(99.20609602773756), 'weight': 0.4, 'contribution': np.float64(39.68243841109503)}, 'price_action': {'score': 62.5, 'weight': 0.1, 'contribution': 6.25}}, 'risk_rating': 'High', 'effective_risk': np.float64(49.51750050069148), 'setup_type': 'LONG_PULLBACK', 'setup_strength': 'Moderate', 'setup_description': 'Pullback Long - Healthy retracement in uptrend with moderate volume', 'position_type': 'LONG'}, {'current_price': 83133.48, 'type': 'SHORT_CHoCH', 'ob_direction': 'Bearish', 'current_trend': 'UPTREND', 'ob_level': '83561-83817', 'volume_score': 77, 'volume_ratio': np.float64(2.5525731482948246), 'ob_volume': np.float64(1023.3450300000001), 'ob_volume_ratio': np.float64(2.5525731482948246), 'risk_percentage': np.float64(0.855025920226391), 'suggested_leverage': 58, 'setup_quality': np.float64(85.5025920226391), 'entry_quality': 'Excellent', 'trade_recommendation': 'Strong setup - Consider full position size', 'warning_messages': ['⚡ Moderate bullish pressure present'], 'risk_factors': {'momentum': {'score': np.float64(80.33126893690434), 'weight': 0.3, 'contribution': np.float64(24.0993806810713)}, 'volume': {'score': 77, 'weight': 0.2, 'contribution': 15.4}, 'ob_quality': {'score': np.float64(99.3830283539195), 'weight': 0.4, 'contribution': np.float64(39.753211341567805)}, 'price_action': {'score': 62.5, 'weight': 0.1, 'contribution': 6.25}}, 'risk_rating': 'High', 'effective_risk': np.float64(49.59150337313068), 'setup_type': 'SHORT_CHoCH', 'setup_strength': 'Moderate', 'setup_description': 'Change of Character Short - Potential reversal with distribution phase', 'position_type': 'SHORT'}, {
-    'current_price': 83133.48, 'type': 'LONG_PULLBACK', 'ob_direction': 'Bearish', 'current_trend': 'UPTREND', 'ob_level': '79280-79609', 'volume_score': 41, 'volume_ratio': np.float64(1.8304672135322846), 'ob_volume': np.float64(733.84754), 'ob_volume_ratio': np.float64(1.8304672135322846), 'risk_percentage': np.float64(0.7823260337306014), 'suggested_leverage': 63, 'setup_quality': np.float64(78.23260337306014), 'entry_quality': 'Good', 'trade_recommendation': 'Good setup - Consider moderate position size', 'warning_messages': ['⚡ Moderate bullish pressure present'], 'risk_factors': {'momentum': {'score': np.float64(80.33126893690434), 'weight': 0.3, 'contribution': np.float64(24.0993806810713)}, 'volume': {'score': 41, 'weight': 0.2, 'contribution': 8.200000000000001}, 'ob_quality': {'score': np.float64(99.2080567299721), 'weight': 0.4, 'contribution': np.float64(39.683222691988846)}, 'price_action': {'score': 62.5, 'weight': 0.1, 'contribution': 6.25}}, 'risk_rating': 'High', 'effective_risk': np.float64(49.28654012502789), 'setup_type': 'LONG_PULLBACK', 'setup_strength': 'Moderate', 'setup_description': 'Pullback Long - Healthy retracement in uptrend with moderate volume', 'position_type': 'LONG'}, {'current_price': 83133.48, 'type': 'SHORT_CHoCH', 'ob_direction': 'Bearish', 'current_trend': 'UPTREND', 'ob_level': '84607-84805', 'volume_score': 18, 'volume_ratio': np.float64(1.3647419382695447), 'ob_volume': np.float64(547.13491), 'ob_volume_ratio': np.float64(1.3647419382695447), 'risk_percentage': np.float64(0.7375942111243542), 'suggested_leverage': 50, 'setup_quality': np.float64(73.75942111243542), 'entry_quality': 'Good', 'trade_recommendation': 'Good setup - Consider moderate position size', 'warning_messages': ['⚡ Moderate bullish pressure present', '📊 Low volume confidence'], 'risk_factors': {'momentum': {'score': np.float64(80.33126893690434), 'weight': 0.3, 'contribution': np.float64(24.0993806810713)}, 'volume': {'score': 18, 'weight': 0.2, 'contribution': 3.6}, 'ob_quality': {'score': np.float64(99.5251010784103), 'weight': 0.4, 'contribution': np.float64(39.81004043136412)}, 'price_action': {'score': 62.5, 'weight': 0.1, 'contribution': 6.25}}, 'risk_rating': 'Moderate', 'effective_risk': np.float64(36.87971055621771), 'setup_type': 'SHORT_CHoCH', 'setup_strength': 'Moderate', 'setup_description': 'Change of Character Short - Potential reversal with distribution phase', 'position_type': 'SHORT'}]
+import pandas as pd
+import matplotlib.pyplot as plt
+from live_trading_bot import LiveTradingBot, TelegramNotifier
+import mplfinance as mpf
+from binance.client import Client
+import os
+from dotenv import load_dotenv
+
+from smartmoneyconcepts import smc
+
+# Load environment variables
+load_dotenv()
+
+# Khởi tạo Binance client
+client = Client(
+    api_key=os.getenv('BINANCE_API_KEY'),
+    api_secret=os.getenv('BINANCE_API_SECRET')
+)
+
+# Khởi tạo bot
+bot = LiveTradingBot(
+    client=client,
+    symbol='SOLUSDT',
+    interval='15m',
+    max_risk_per_trade=0.02,
+    leverage=20,
+    window_size=700,
+    min_setup_quality=70.0,
+    min_volume_ratio=3.0,
+    test_mode=True,
+    telegram=None  # Không cần telegram cho test
+)
+
+bot._fetch_latest_data()
+
+# Lấy dữ liệu và phát hiện orderblocks
+df = bot.historical_data
+orderblocks = smc.ob(df, 'sensitive')
+print(orderblocks)
+
+# Vẽ biểu đồ
+
+
+# def plot_with_orderblocks(df, orderblocks):
+#     # Tạo plot style
+#     style = mpf.make_mpf_style(base_mpf_style='charles', rc={
+#                                'figure.figsize': (15, 8)})
+
+#     # Tạo các box cho orderblocks
+#     boxes = []
+#     colors = []
+#     for ob in orderblocks:
+#         # Tạo box cho mỗi orderblock
+#         box = dict(
+#             y1=ob['low'],
+#             y2=ob['high'],
+#             x1=ob['start_time'],
+#             x2=ob['end_time'],
+#             alpha=0.3
+#         )
+#         boxes.append(box)
+#         # Màu xanh cho bullish, đỏ cho bearish
+#         colors.append('g' if ob['direction'] == 1 else 'r')
+
+#     # Vẽ biểu đồ với orderblocks
+#     mpf.plot(
+#         df,
+#         type='candle',
+#         style=style,
+#         title='SOLUSDT Orderblocks',
+#         alines=dict(alines=boxes, colors=colors, alpha=0.3, linewidths=7),
+#         volume=True,
+#         show_nontrading=True
+#     )
+
+
+# # Vẽ biểu đồ
+# plot_with_orderblocks(df, orderblocks)
+# plt.show()

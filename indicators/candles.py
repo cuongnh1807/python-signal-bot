@@ -38,7 +38,7 @@ def should_keep_ob(df, ob, current_index):
 
     price_action_score = 0
     if ob_direction == 1:  # Bullish
-        price_action = 1 if (
+        price_action_score = 1 if (
             pin_bar_signal == 1 or engulfing_signal == 1) else 0
         if df.iloc[current_index]['low'] < ob['bottom']:
             price_action_score *= 2
@@ -66,6 +66,6 @@ def should_keep_ob(df, ob, current_index):
     total_score = price_action_score + macd_signal
     if total_score >= 2:
         return True
-    elif total_score == 1 and price_action == 1:
+    elif total_score == 1 and price_action_score == 1:
         return True
     return False

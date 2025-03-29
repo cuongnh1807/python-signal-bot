@@ -25,19 +25,17 @@ def is_engulfing(df, i):
 
 def should_keep_ob(df, ob, current_index):
     ob_direction = ob['direction']
-    valid_signals = 0
-    for i in range(current_index, max(current_index - 2, -1), -1):
-        pin_bar_signal = is_pin_bar(df.iloc[i])
-        engulfing_signal = is_engulfing(df, i)
 
-        if ob_direction == 1:
-            if pin_bar_signal == 1 or engulfing_signal == 1:
-                valid_signals += 1
-        else:
-            if pin_bar_signal == -1 or engulfing_signal == -1:
-                valid_signals += 1
+    pin_bar_signal = is_pin_bar(df.iloc[current_index])
+    engulfing_signal = is_engulfing(df, current_index)
 
-    price_action_signal = valid_signals >= 1
+    price_action_signal = False
+    if ob_direction == 1:  # Bullish
+        if pin_bar_signal == 1 or engulfing_signal == 1:
+            price_action_signal = True
+    else:
+        if pin_bar_signal == -1 or engulfing_signal == -1:
+            price_action_signal = True
 
     macd = df['macd'].iloc[current_index]
     macd_hist = df['macd_hist'].iloc[current_index]

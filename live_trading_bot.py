@@ -864,6 +864,8 @@ class LiveTradingBot:
 
             # Split quantity among take profit levels
             tp_levels = len(order['take_profit'])
+            if order['actual_entry_price'] <= 0 or tp_levels <= 0:
+                return
             qty_per_level = (order['position_size'] /
                              order['actual_entry_price']) / tp_levels
             qty_per_level = adjust_precision(

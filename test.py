@@ -35,7 +35,7 @@ bot._fetch_latest_data()
 
 # Lấy dữ liệu và phát hiện orderblocks
 df = bot.historical_data
-orderblocks = smc.ob(df, 'sensitive')
+orderblocks = smc.ob(df, 'pivot_volume')
 print(orderblocks)
 
 # Vẽ biểu đồ

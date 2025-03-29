@@ -11,16 +11,23 @@ def is_pin_bar(row):
 
 
 def is_engulfing(df, i):
-    if i > 0:
-        prev = df.iloc[i - 1]
-        current = df.iloc[i]
-        if (current['close'] > current['open'] and prev['close'] < prev['open'] and
-                current['close'] > prev['open'] and current['open'] < prev['close']):
-            return 1
-        elif (current['close'] < current['open'] and prev['close'] > prev['open'] and
-                current['close'] < prev['open'] and current['open'] > prev['close']):
-            return -1
-    return 0
+    if i < 1:
+        return 0
+
+    prev, curr = df.iloc[i-1], df.iloc[i]
+    bull_engulf = (curr['close'] > curr['open'] and
+                   prev['close'] < prev['open'] and
+                   curr['open'] < prev['close'] and
+                   curr['close'] > prev['open'] and
+                   curr['volume'] > prev['volume'] * 0.8)
+
+    bear_engulf = (curr['close'] < curr['open'] and
+                   prev['close'] > prev['open'] and
+                   curr['open'] > prev['close'] and
+                   curr['close'] < prev['open'] and
+                   curr['volume'] > prev['volume'] * 0.8)
+
+    return 1 if bull_engulf else (-1 if bear_engulf else 0)
 
 
 def should_keep_ob(df, ob, current_index):
@@ -29,13 +36,17 @@ def should_keep_ob(df, ob, current_index):
     pin_bar_signal = is_pin_bar(df.iloc[current_index])
     engulfing_signal = is_engulfing(df, current_index)
 
-    price_action_signal = False
+    price_action_score = 0
     if ob_direction == 1:  # Bullish
-        if pin_bar_signal == 1 or engulfing_signal == 1:
-            price_action_signal = True
+        price_action = 1 if (
+            pin_bar_signal == 1 or engulfing_signal == 1) else 0
+        if df.iloc[current_index]['low'] < ob['low']:
+            price_action *= 2
     else:
-        if pin_bar_signal == -1 or engulfing_signal == -1:
-            price_action_signal = True
+        price_action = 1 if (pin_bar_signal == -
+                             1 or engulfing_signal == -1) else 0
+        if df.iloc[current_index]['high'] > ob['high']:
+            price_action *= 2
 
     macd = df['macd'].iloc[current_index]
     macd_hist = df['macd_hist'].iloc[current_index]
@@ -43,14 +54,18 @@ def should_keep_ob(df, ob, current_index):
 
     if ob_direction == 1:  # Bullish
         macd_signal = (
-            (macd < 0 and macd_hist > 0) or
-            (macd > macd_signal_line and macd < 0)
+            (macd > macd_signal_line) and (
+                macd_hist > df['macd_hist'].iloc[current_index-1])
         )
     else:  # Bearish
         macd_signal = (
-            (macd > 0 and macd_hist < 0) or
-            (macd < macd_signal_line and macd > 0)
-        )
+            (macd < macd_signal_line) and (
+                macd_hist < df['macd_hist'].iloc[current_index-1])
 
-    signals = [price_action_signal, macd_signal]
-    return sum(signals) >= 1
+        )
+    total_score = price_action + macd_signal
+    if total_score >= 2:
+        return True
+    elif total_score == 1 and price_action == 1:
+        return True
+    return False

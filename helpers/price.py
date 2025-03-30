@@ -119,3 +119,71 @@ def calculate_price_momentum(data: pd.DataFrame, lookback: int = 20, short_term_
 
 def adjust_precision(value, precision):
     return round(value, precision)
+
+
+def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
+    """
+    Gộp các order block chồng lấp dựa trên mức độ chồng lấp về giá.
+
+    Parameters:
+        order_blocks (list): Danh sách các order block
+        threshold (float): Ngưỡng chồng lấp để gộp (0-1), mặc định là 0.5 (50%)
+
+    Returns:
+        list: Danh sách các order block sau khi gộp
+    """
+    if not order_blocks:
+        return []
+
+    # Sắp xếp order blocks theo thời gian bắt đầu
+    sorted_obs = sorted(order_blocks, key=lambda x: x['left_time'])
+    merged_obs = []
+
+    i = 0
+    while i < len(sorted_obs):
+        current_ob = sorted_obs[i]
+
+        # Kiểm tra xem có thể gộp với order block tiếp theo không
+        j = i + 1
+        while j < len(sorted_obs):
+            next_ob = sorted_obs[j]
+
+            # Tính toán mức độ chồng lấp
+            current_range = current_ob['top'] - current_ob['bottom']
+            next_range = next_ob['top'] - next_ob['bottom']
+
+            overlap_top = min(current_ob['top'], next_ob['top'])
+            overlap_bottom = max(current_ob['bottom'], next_ob['bottom'])
+
+            if overlap_bottom < overlap_top:  # Có chồng lấp
+                overlap_range = overlap_top - overlap_bottom
+                overlap_ratio = overlap_range / min(current_range, next_range)
+
+                # Nếu chồng lấp đủ lớn, gộp chúng lại
+                if overlap_ratio >= threshold:
+                    # Tạo order block mới từ việc gộp
+                    current_ob = {
+                        'index': min(current_ob['index'], next_ob['index']),
+                        'top': max(current_ob['top'], next_ob['top']),
+                        'bottom': min(current_ob['bottom'], next_ob['bottom']),
+                        'left_time': min(current_ob['left_time'], next_ob['left_time']),
+                        'direction': current_ob['direction'],
+                        'atr': max(current_ob['atr'] or 0, next_ob['atr'] or 0),
+                        'mitigated_time': None,
+                        'avg': (max(current_ob['top'], next_ob['top']) +
+                                min(current_ob['bottom'], next_ob['bottom'])) / 2,
+                        'volume': max(current_ob['volume'] or 0, next_ob['volume'] or 0),
+                        'strength': max(current_ob['strength'] or 0, next_ob['strength'] or 0)
+                    }
+
+                    # Xóa order block đã gộp và tiếp tục kiểm tra
+                    sorted_obs.pop(j)
+                else:
+                    j += 1
+            else:
+                j += 1
+
+        merged_obs.append(current_ob)
+        i += 1
+
+    return merged_obs

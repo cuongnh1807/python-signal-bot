@@ -432,7 +432,7 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
     # Determine current trend
     current_trend = 'UPTREND' if ema_34.iloc[-1] > ema_89.iloc[-1] else 'DOWNTREND'
     # Get order blocks
-    ob_results = smc.ob(data, type_orderblock='sensitive')
+    ob_results = smc.ob(data, type_orderblock='pivot_volume')
 
     # Add velocity analysis
     velocity = calculate_velocity(data, 30)
@@ -545,7 +545,7 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
         setup.update({
             'setup_type': setup_type,
             'setup_strength': setup_strength,
-            'position_type': 'LONG' if setup_type.startswith('LONG') else 'SHORT',
+            'position_type': 'LONG' if ob_direction == 1 else 'SHORT',
         })
 
         # Add velocity analysis to each setup

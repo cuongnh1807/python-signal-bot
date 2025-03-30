@@ -43,8 +43,8 @@ def should_keep_ob(df, ob, current_index):
         if df.iloc[current_index]['low'] < ob['bottom']:
             price_action_score *= 2
     else:
-        price_action_score = 1 if (pin_bar_signal == -
-                                   1 or engulfing_signal == -1) else 0
+        price_action_score = 1 if (
+            pin_bar_signal == -1 or engulfing_signal == -1) else 0
         if df.iloc[current_index]['high'] > ob['top']:
             price_action_score *= 2
 

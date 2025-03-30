@@ -13,6 +13,7 @@ import pandas as pd
 
 from indicators.candles import should_keep_ob
 from indicators.rsi import calculate_macd, calculate_rsi
+from helpers.price import merge_overlapping_order_blocks
 
 
 def detect_pivot_volume_order_blocks(
@@ -114,6 +115,7 @@ def detect_pivot_volume_order_blocks(
                     top = bottom + min_height
 
                 ob = {
+                    'index': k,
                     'direction': 1,
                     'left_time': df.index[k],
                     'top': top,
@@ -178,6 +180,7 @@ def detect_pivot_volume_order_blocks(
                     bottom = top - min_height
 
                 ob = {
+                    'index': k,
                     'direction': -1,
                     'left_time': df.index[k],
                     'top': top,
@@ -253,6 +256,8 @@ def detect_pivot_volume_order_blocks(
 
         bull_obs = bull_obs[:bull_ext_last]
         bear_obs = bear_obs[:bear_ext_last]
+        bull_obs = merge_overlapping_order_blocks(bull_obs, 0.5)
+        bear_obs = merge_overlapping_order_blocks(bear_obs, 0.5)
 
     return df, bull_obs + bear_obs
 

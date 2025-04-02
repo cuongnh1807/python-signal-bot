@@ -385,11 +385,11 @@ class smc:
     ):
         if type_orderblock == "sensitive":
             return detect_order_sensitive_blocks(
-                ohlc, 0.28, merge_threshold=0.7)
+                ohlc, 0.3, merge_threshold=0.6)
         elif type_orderblock == "pivot_volume":
             _, order_blocks = detect_pivot_volume_order_blocks(
-                ohlc, length=5,
-                bull_ext_last=5, bear_ext_last=10,
+                ohlc, length=10,
+                bull_ext_last=5, bear_ext_last=5,
                 atr_period=14, min_height_multiplier=0.5)
             return order_blocks
 

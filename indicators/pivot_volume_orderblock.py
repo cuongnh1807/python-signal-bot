@@ -20,18 +20,37 @@ def detect_pivot_volume_order_blocks(
     df,
     length=5,
     bull_ext_last=3,
-    bear_ext_last=10,
-    mitigation_method='Close',
+    bear_ext_last=3,
+    mitigation_method='Wick',
     volume_lookback=20,
     atr_period=14,
     min_height_multiplier=0.5,
     use_market_structure=True,
     strength_threshold=70,
 ):
+    """
+    Detect order blocks based on pivot volume strategy, similar to the TradingView indicator.
+
+    Parameters:
+        df (pd.DataFrame): OHLCV dataframe
+        length (int): Volume pivot length (lookback period)
+        bull_ext_last (int): Number of bullish OBs to keep
+        bear_ext_last (int): Number of bearish OBs to keep
+        mitigation_method (str): 'Wick' or 'Close' for determining mitigation
+        volume_lookback (int): Period for volume moving average
+        atr_period (int): Period for ATR calculation
+        min_height_multiplier (float): Minimum height as ATR multiple
+        use_market_structure (bool): Whether to use market structure for OB direction
+        strength_threshold (int): Minimum strength required for an OB
+
+    Returns:
+        tuple: (df with added columns, list of order blocks)
+    """
     df = df.copy()
 
     has_volume = 'volume' in df.columns
 
+    # Base indicators
     df['rsi'] = calculate_rsi(df)
 
     macd_info = calculate_macd(df)
@@ -39,11 +58,13 @@ def detect_pivot_volume_order_blocks(
     df['macd_signal'] = macd_info['signal']
     df['macd_hist'] = macd_info['histogram']
 
+    # Volume indicators
     if has_volume:
         df['volume_ma'] = df['volume'].rolling(volume_lookback).mean()
         df['volume_ma'] = df['volume_ma'].fillna(
             df['volume'].iloc[0] if len(df) > 0 else 0)
 
+    # ATR for sizing
     df['tr'] = np.maximum(
         df['high'] - df['low'],
         np.maximum(
@@ -54,40 +75,59 @@ def detect_pivot_volume_order_blocks(
     df['atr'] = df['tr'].rolling(atr_period).mean()
     df['atr'] = df['atr'].fillna(df['tr'].mean())
 
-    # Tính rolling highs và lows để phát hiện pivot
+    # Calculate highest and lowest prices over the length period
+    # This aligns with TradingView's upper/lower calculation
     df['upper'] = df['high'].rolling(length).max()
     df['lower'] = df['low'].rolling(length).min()
 
+    # Initialize order state (os)
+    df['os'] = 0  # 0 = bearish context, 1 = bullish context
+
+    # Market structure determination based on TradingView logic
     if use_market_structure:
-        df['os'] = 0
         for i in range(length, len(df)):
+            if i < length:
+                continue
+
             high_prev = df['high'].iloc[i - length]
             low_prev = df['low'].iloc[i - length]
             upper = df['upper'].iloc[i]
             lower = df['lower'].iloc[i]
+
+            # Logic directly from TradingView: os := high[length] > upper ? 0 : low[length] < lower ? 1 : os[1]
             if high_prev > upper:
-                df.loc[df.index[i], 'os'] = 0
+                df.loc[df.index[i], 'os'] = 0  # Bearish context
             elif low_prev < lower:
-                df.loc[df.index[i], 'os'] = 1
+                df.loc[df.index[i], 'os'] = 1  # Bullish context
             else:
+                # Keep previous state
                 df.loc[df.index[i], 'os'] = df['os'].iloc[i - 1]
 
+    # Pivot high volume detection - this is a key part of the TradingView indicator
     df['phv'] = False
     if has_volume:
         for k in range(length, len(df) - length):
-            if (df['volume'].iloc[k] > df['volume'].iloc[k - length:k].max() and
-                    df['volume'].iloc[k] > df['volume'].iloc[k + 1:k + length + 1].max()):
+            # Check if volume at position k is the highest in the window [k-length:k+length]
+            # This is equivalent to TradingView's: phv = ta.pivothigh(volume, length, length)
+            volume_before = df['volume'].iloc[k -
+                                              length:k].max() if k >= length else 0
+            volume_after = df['volume'].iloc[k + 1:k +
+                                             length + 1].max() if k + length < len(df) else 0
+
+            if df['volume'].iloc[k] > volume_before and df['volume'].iloc[k] > volume_after:
                 df.at[df.index[k], 'phv'] = True
 
-    # Xác định mitigation targets dựa trên phương pháp
+    # Set mitigation targets based on method
     if mitigation_method == 'Close':
         df['target_bull'] = df['close'].rolling(length).min()
         df['target_bear'] = df['close'].rolling(length).max()
     else:  # 'Wick'
-        df['target_bull'] = df['low'].rolling(length).min()
-        df['target_bear'] = df['high'].rolling(length).max()
+        # TradingView uses lower for bullish targets
+        df['target_bull'] = df['lower']
+        # TradingView uses upper for bearish targets
+        df['target_bear'] = df['upper']
 
-    # Khởi tạo các cột cho OB signals và mitigation flags
+    # Initialize OB tracking
     df['bull_ob'] = np.nan
     df['bear_ob'] = np.nan
     df['mitigated_bull'] = False
@@ -96,24 +136,29 @@ def detect_pivot_volume_order_blocks(
     bull_obs = []
     bear_obs = []
 
+    # Main order block detection and tracking loop
     for i in range(2 * length, len(df)):
         current_time = df.index[i]
 
+        # Order block detection based on pivot high volume and market structure
         if has_volume and df['phv'].iloc[i - length]:
-            k = i - length
-            direction = 'bullish' if df['os'].iloc[i] == 1 else 'bearish' if use_market_structure else (
-                'bullish' if df['close'].iloc[i] > df['close'].iloc[i -
-                                                                    length] else 'bearish'
-            )
+            k = i - length  # Position of the potential order block
+
+            # Direction determination based on order state (os)
+            direction = 'bullish' if df['os'].iloc[i] == 1 else 'bearish'
 
             if direction == 'bullish':
-                top = (df['high'].iloc[k] + df['low'].iloc[k]) / 2
+                # Bullish OB: mid to low of candle (TradingView: hl2[length], low[length])
+                top = (df['high'].iloc[k] + df['low'].iloc[k]) / 2  # hl2
                 bottom = df['low'].iloc[k]
+
+                # Ensure minimum height
                 height = top - bottom
                 min_height = df['atr'].iloc[k] * min_height_multiplier
                 if height < min_height:
                     top = bottom + min_height
 
+                # Create order block object
                 ob = {
                     'index': k,
                     'direction': 1,
@@ -129,10 +174,12 @@ def detect_pivot_volume_order_blocks(
                     'volume': 0
                 }
 
+                # Add volume-related metrics
                 if has_volume:
                     valid_indices = [i for i in [k, k + 1] if i < len(df)]
-                    vol = sum(df.at[df.index[i], 'volume'] for i in valid_indices) / \
+                    vol = sum(df.at[df.index[idx], 'volume'] for idx in valid_indices) / \
                         len(valid_indices) if valid_indices else 0
+
                     ob['volume'] = vol
                     volume_k = df['volume'].iloc[k]
                     volume_ma = df['volume_ma'].iloc[len(df) - 1]
@@ -140,6 +187,7 @@ def detect_pivot_volume_order_blocks(
                     height_ratio = ob['height'] / \
                         ob['atr'] if ob['atr'] > 0 else 1
 
+                    # Count historical OBs in similar price range
                     ob_count = 0
                     recent_count = 0
                     ob_price_range = ob['height'] * 1.5
@@ -156,6 +204,7 @@ def detect_pivot_volume_order_blocks(
                     ob['historical_count'] = ob_count
                     ob['recent_count'] = recent_count
 
+                    # Calculate OB strength based on volume, height, and historical presence
                     if recent_count >= 3:
                         historical_strength = max(
                             5, 15 - (recent_count - 2) * 5)
@@ -167,18 +216,23 @@ def detect_pivot_volume_order_blocks(
                     ob['strength'] = int(
                         volume_strength + height_strength + historical_strength)
 
-                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, i):
+                    # Add to OB list if strong enough and passes additional filtering
+                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1):
                         bull_obs.insert(0, ob)
                         df.at[current_time, 'bull_ob'] = bottom
 
             else:  # Bearish OB
+                # Bearish OB: high to mid of candle (TradingView: high[length], hl2[length])
                 top = df['high'].iloc[k]
-                bottom = (df['high'].iloc[k] + df['low'].iloc[k]) / 2
+                bottom = (df['high'].iloc[k] + df['low'].iloc[k]) / 2  # hl2
+
+                # Ensure minimum height
                 height = top - bottom
                 min_height = df['atr'].iloc[k] * min_height_multiplier
                 if height < min_height:
                     bottom = top - min_height
 
+                # Create order block object
                 ob = {
                     'index': k,
                     'direction': -1,
@@ -194,10 +248,12 @@ def detect_pivot_volume_order_blocks(
                     'volume': 0
                 }
 
+                # Add volume-related metrics
                 if has_volume:
                     valid_indices = [i for i in [k, k + 1] if i < len(df)]
-                    vol = sum(df.at[df.index[i], 'volume'] for i in valid_indices) / \
+                    vol = sum(df.at[df.index[idx], 'volume'] for idx in valid_indices) / \
                         len(valid_indices) if valid_indices else 0
+
                     ob['volume'] = vol
                     volume_k = df['volume'].iloc[k]
                     volume_ma = df['volume_ma'].iloc[len(df) - 1]
@@ -205,6 +261,7 @@ def detect_pivot_volume_order_blocks(
                     height_ratio = ob['height'] / \
                         ob['atr'] if ob['atr'] > 0 else 1
 
+                    # Count historical OBs in similar price range
                     ob_count = 0
                     recent_count = 0
                     ob_price_range = ob['height'] * 1.5
@@ -221,6 +278,7 @@ def detect_pivot_volume_order_blocks(
                     ob['historical_count'] = ob_count
                     ob['recent_count'] = recent_count
 
+                    # Calculate OB strength based on volume, height, and historical presence
                     if recent_count >= 3:
                         historical_strength = max(
                             5, 15 - (recent_count - 2) * 5)
@@ -231,15 +289,18 @@ def detect_pivot_volume_order_blocks(
                     height_strength = min(height_ratio * 40, 40)
                     ob['strength'] = int(
                         volume_strength + height_strength + historical_strength)
-                    print("ob['strength']", ob['strength'])
 
-                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, i):
+                    # Add to OB list if strong enough and passes additional filtering
+                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1):
                         bear_obs.insert(0, ob)
                         df.at[current_time, 'bear_ob'] = top
 
+        # Check for OB mitigation based on price movement
+        # This follows TradingView's removal logic
         target_bull = df['target_bull'].iloc[i]
         target_bear = df['target_bear'].iloc[i]
 
+        # Mitigate bullish OBs if price drops below the bottom
         for ob in bull_obs[:]:
             if target_bull < ob['bottom']:
                 ob['mitigated'] = True
@@ -247,6 +308,7 @@ def detect_pivot_volume_order_blocks(
                 bull_obs.remove(ob)
                 df.at[current_time, 'mitigated_bull'] = True
 
+        # Mitigate bearish OBs if price rises above the top
         for ob in bear_obs[:]:
             if target_bear > ob['top']:
                 ob['mitigated'] = True
@@ -254,6 +316,7 @@ def detect_pivot_volume_order_blocks(
                 bear_obs.remove(ob)
                 df.at[current_time, 'mitigated_bear'] = True
 
+        # Limit the number of OBs and merge overlapping ones
         bull_obs = bull_obs[:bull_ext_last]
         bear_obs = bear_obs[:bear_ext_last]
         bull_obs = merge_overlapping_order_blocks(bull_obs, 0.5)
@@ -316,22 +379,35 @@ if __name__ == "__main__":
         '--symbol', type=str, default='SOLUSDT', help='Symbol to fetch data')
     parser.add_argument(
         '--interval', type=str, default='15m', help='Interval to fetch data')
+    parser.add_argument(
+        '--length', type=int, default=5, help='Volume pivot length')
+    parser.add_argument(
+        '--bull_ext_last', type=int, default=3, help='Number of bullish OBs to keep')
+    parser.add_argument(
+        '--bear_ext_last', type=int, default=3, help='Number of bearish OBs to keep')
+    parser.add_argument(
+        '--mitigation_method', type=str, default='Wick', choices=['Wick', 'Close'],
+        help='Method to determine when OBs are mitigated')
+
     args = parser.parse_args()
     client = Client()
     fetchData = BinanceDataFetcher(client=client)
     start_time = datetime.now() - timedelta(days=7)
     data = fetchData.get_historical_klines(
         args.symbol, interval=args.interval, start_time=start_time)
-    # df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close',
-    #                                  'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_volume', 'taker_buy_quote_volume', 'ignore'])
-    # df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    # df.set_index('timestamp', inplace=True)
-    df, orders = detect_pivot_volume_order_blocks(data, length=5,
-                                                  bull_ext_last=5, bear_ext_last=10,
-                                                  atr_period=14, min_height_multiplier=0.5)
-    # Tách order blocks theo hướng
+
+    df, orders = detect_pivot_volume_order_blocks(data,
+                                                  length=args.length,
+                                                  bull_ext_last=args.bull_ext_last,
+                                                  bear_ext_last=args.bear_ext_last,
+                                                  mitigation_method=args.mitigation_method,
+                                                  atr_period=14,
+                                                  min_height_multiplier=0.5)
+
+    # Separate order blocks by direction
     bullish_obs = [ob for ob in orders if ob['direction'] == 1]
     bearish_obs = [ob for ob in orders if ob['direction'] == -1]
-    print("Bullish Order Blocks:", bullish_obs)
-    print("Bearish Order Blocks:", bearish_obs)
+
+    print(
+        f"Found {len(bullish_obs)} bullish and {len(bearish_obs)} bearish order blocks")
     plot_order_blocks(df, bullish_obs, bearish_obs)

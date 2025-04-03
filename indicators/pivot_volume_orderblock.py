@@ -27,6 +27,7 @@ def detect_pivot_volume_order_blocks(
     min_height_multiplier=0.5,
     use_market_structure=True,
     strength_threshold=70,
+    use_should_keep_ob=True
 ):
     """
     Detect order blocks based on pivot volume strategy, similar to the TradingView indicator.
@@ -217,7 +218,7 @@ def detect_pivot_volume_order_blocks(
                         volume_strength + height_strength + historical_strength)
 
                     # Add to OB list if strong enough and passes additional filtering
-                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1):
+                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1, use_should_keep_ob):
                         bull_obs.insert(0, ob)
                         df.at[current_time, 'bull_ob'] = bottom
 
@@ -291,7 +292,7 @@ def detect_pivot_volume_order_blocks(
                         volume_strength + height_strength + historical_strength)
 
                     # Add to OB list if strong enough and passes additional filtering
-                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1):
+                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1, use_should_keep_ob):
                         bear_obs.insert(0, ob)
                         df.at[current_time, 'bear_ob'] = top
 
@@ -389,20 +390,25 @@ if __name__ == "__main__":
         '--mitigation_method', type=str, default='Wick', choices=['Wick', 'Close'],
         help='Method to determine when OBs are mitigated')
 
+    parser.add_argument(
+        '--use_should_keep_ob', type=str, default='True', help='Whether to use should_keep_ob for OB direction')
+
     args = parser.parse_args()
     client = Client()
     fetchData = BinanceDataFetcher(client=client)
     start_time = datetime.now() - timedelta(days=7)
     data = fetchData.get_historical_klines(
         args.symbol, interval=args.interval, start_time=start_time)
-
+    print(args.use_should_keep_ob)
     df, orders = detect_pivot_volume_order_blocks(data,
                                                   length=args.length,
                                                   bull_ext_last=args.bull_ext_last,
                                                   bear_ext_last=args.bear_ext_last,
                                                   mitigation_method=args.mitigation_method,
                                                   atr_period=14,
-                                                  min_height_multiplier=0.5)
+                                                  min_height_multiplier=0.5,
+                                                  use_should_keep_ob=True if args.use_should_keep_ob == 'True' else False
+                                                  )
 
     # Separate order blocks by direction
     bullish_obs = [ob for ob in orders if ob['direction'] == 1]

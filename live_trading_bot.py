@@ -932,7 +932,6 @@ class LiveTradingBot:
                         order['filled_time'] = datetime.fromtimestamp(
                             order_info['updateTime'] / 1000)
 
-                        # Send notification
                         self.telegram.notify_order_filled(order)
 
                         # Place stop loss
@@ -1135,44 +1134,96 @@ class LiveTradingBot:
                     del self.open_positions[position_id]
                     break
 
+    def _are_orders_similar(self, order1, order2, price_threshold=0.01):
+        """
+        Check if two orders are similar based on the following criteria:
+        - Same side (LONG/SHORT)
+        - Entry price difference within the allowed threshold
+        - Same setup type
+
+        Parameters:
+        -----------
+        order1, order2: Dict
+            Information about the two orders to compare
+        price_threshold: float
+            Allowed price difference threshold (percentage)
+
+        Returns:
+        --------
+        bool: True if the two orders are similar
+        """
+        if order1['side'] != order2['side']:
+            return False
+
+        if order1['setup_type'] != order2['setup_type']:
+            return False
+
+        # Calculate price difference percentage
+        price_diff_percent = abs(
+            (order1['entry_price'] / order2['entry_price'] - 1) * 100)
+
+        return price_diff_percent <= price_threshold
+
     def _cancel_obsolete_orders(self, new_order_signatures: set):
-        """Cancel orders that are no longer recommended by the latest analysis"""
+        """Cancel orders that are no longer recommended by the latest analysis or are too similar to each other"""
         try:
+            # Create list of orders to cancel
+            orders_to_cancel = []
+
             # Check each active order
-            for order_id in list(self.active_orders.keys()):
+            active_order_ids = list(self.active_orders.keys())
+
+            for i, order_id in enumerate(active_order_ids):
                 order = self.active_orders[order_id]
 
-                # Skip orders that are not PENDING (i.e., already FILLED or processing)
+                # Skip orders that are not in PENDING status
                 if order['status'] != 'PENDING':
                     continue
 
                 # Create signature for this order
                 order_signature = order['signature']
-                print("order_signature", order_signature)
-                # If this order signature is not in the new recommendations, cancel it
-                if order_signature not in new_order_signatures:
-                    logger.info(
-                        f"Canceling obsolete order {order_id} that is no longer recommended")
 
-                    # Cancel the order on the exchange
-                    self.client.futures_cancel_order(
-                        symbol=self.symbol,
-                        orderId=order_id
-                    )
+                # Check if order is not in the new recommendations list
+                should_cancel = order_signature not in new_order_signatures
 
-                    # Remove from our active orders
-                    del self.active_orders[order_id]
+                # Check if order is similar to other orders
+                if not should_cancel:
+                    for j in range(i + 1, len(active_order_ids)):
+                        other_order_id = active_order_ids[j]
+                        other_order = self.active_orders[other_order_id]
 
-                    # Send notification
-                    self.telegram.send_message(
-                        f"🚫 <b>Order Canceled</b>\n\n"
-                        f"Symbol: <b>{self.symbol}</b>\n"
-                        f"Side: <b>{order['side']}</b>\n"
-                        f"Setup: <b>{order['setup_type']}</b>\n"
-                        f"Entry: <b>${order['entry_price']:.2f}</b>\n"
-                        f"Reason: <b>No longer recommended by strategy</b>",
-                        topic_id=self.telegram.orders_topic_id
-                    )
+                        if other_order['status'] == 'PENDING' and self._are_orders_similar(order, other_order):
+                            # If similar order is found, cancel the weaker order
+                            should_cancel = True
+                            break
+
+                if should_cancel:
+                    orders_to_cancel.append((order_id, order))
+
+            # Cancel all selected orders
+            for order_id, order in orders_to_cancel:
+                logger.info(
+                    f"Canceling order {order_id} that is obsolete or similar to other orders")
+
+                # Cancel order on the exchange
+                self.client.futures_cancel_order(
+                    symbol=self.symbol,
+                    orderId=order_id
+                )
+
+                # Remove from active orders list
+                del self.active_orders[order_id]
+
+                # Send notification
+                self.telegram.send_message(
+                    f"🚫 <b>Order Canceled</b>\n\n"
+                    f"Symbol: <b>{self.symbol}</b>\n"
+                    f"Side: <b>{order['side']}</b>\n"
+                    f"Setup: <b>{order['setup_type']}</b>\n"
+                    f"Entry: <b>${order['entry_price']:.2f}</b>\n"
+                    f"Reason: <b>{'Similar to another order' if order_signature in new_order_signatures else 'No longer recommended by strategy'}</b>",
+                    topic_id=self.telegram.orders_topic_id
+                )
 
         except Exception as e:
             error_msg = f"Error canceling obsolete orders: {str(e)}"
@@ -1352,21 +1403,6 @@ class LiveTradingBot:
                 f"Updated historical data. Current price: {self.current_price}")
         except Exception as e:
             logger.error(f"Error fetching latest data: {str(e)}")
-
-    def _is_main_interval_closed(self, last_full_analysis_time):
-        """Check if main interval (15m) candle has closed since last full analysis"""
-        if last_full_analysis_time is None:
-            return True
-
-        now = datetime.now()
-        interval_seconds = self._get_interval_seconds(self.interval)
-
-        # Calculate how many intervals have passed
-        seconds_since_last = (now - last_full_analysis_time).total_seconds()
-        intervals_passed = seconds_since_last / interval_seconds
-
-        # If at least one interval has passed, we should do full analysis
-        return intervals_passed >= 1.0
 
     def stop(self):
         """Stop the trading bot"""

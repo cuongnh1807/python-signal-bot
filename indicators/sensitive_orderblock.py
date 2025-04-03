@@ -12,7 +12,7 @@ from indicators.rsi import calculate_macd
 from helpers.price import merge_overlapping_order_blocks
 
 
-def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Wick", buy_alert=False, sell_alert=False, volume_lookback=20, merge_threshold=0.7, max_blocks=10, atr_period=14, strength_threshold=70):
+def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Wick", buy_alert=False, sell_alert=False, volume_lookback=20, merge_threshold=0.7, max_blocks=10, atr_period=14, strength_threshold=70, use_should_keep_ob=True):
     """
     Detect bullish and bearish order blocks in a financial dataset based on Pine Script logic.
     Implements the Sonarlab Order Block detection algorithm from TradingView.
@@ -133,7 +133,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Wick", buy_al
                         }
 
                         # Add to list if strong enough
-                        if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1):
+                        if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1, use_should_keep_ob):
                             bearish_obs.append(ob)
                             historical_obs.append(ob)
                         break
@@ -172,7 +172,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Wick", buy_al
                         }
 
                         # Add to list if strong enough
-                        if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1):
+                        if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1, use_should_keep_ob):
                             bullish_obs.append(ob)
                             historical_obs.append(ob)
                         break
@@ -373,6 +373,8 @@ if __name__ == "__main__":
         '--days', type=int, default=10, help='Number of days of historical data')
     parser.add_argument(
         '--max_blocks', type=int, default=20, help='Maximum number of order blocks to display')
+    parser.add_argument(
+        '--use_should_keep_ob', type=str, default='True', help='Whether to use should_keep_ob for OB direction')
 
     args = parser.parse_args()
     client = Client()
@@ -387,7 +389,9 @@ if __name__ == "__main__":
         sens=args.sensitivity,
         OBMitigationType=args.mitigation,
         max_blocks=args.max_blocks,
-        merge_threshold=0.7)
+        merge_threshold=0.7,
+        use_should_keep_ob=True if args.use_should_keep_ob == 'True' else False
+    )
 
     # Separate order blocks by direction
     bullish_obs = [ob for ob in order_blocks if ob['direction'] == 1]

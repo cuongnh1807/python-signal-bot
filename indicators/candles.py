@@ -30,7 +30,10 @@ def is_engulfing(df, i):
     return 1 if bull_engulf else (-1 if bear_engulf else 0)
 
 
-def should_keep_ob(df, ob, current_index):
+def should_keep_ob(df, ob, current_index, use_should_keep_ob=True):
+    if not use_should_keep_ob:
+        return True
+
     ob_direction = ob['direction']
 
     pin_bar_signal = is_pin_bar(df.iloc[current_index])

@@ -435,9 +435,9 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
     ob_results = smc.ob(data, type_orderblock='sensitive')
 
     # Add velocity analysis
-    velocity = calculate_velocity(data, 30)
+    velocity = calculate_velocity(data, 20)
 
-    volume_analysis = analyze_volume_patterns(data, lookback=30)
+    volume_analysis = analyze_volume_patterns(data, lookback=20)
 
     # Analyze each order block
     for i in range(len(ob_results)):

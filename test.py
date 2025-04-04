@@ -20,7 +20,7 @@ client = Client(
 # Khởi tạo bot
 bot = LiveTradingBot(
     client=client,
-    symbol='SOLUSDT',
+    symbol='BTCUSDT',
     interval='15m',
     max_risk_per_trade=0.02,
     leverage=20,

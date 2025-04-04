@@ -1,9 +1,10 @@
 from smartmoneyconcepts.smc import smc
 from datetime import datetime, timedelta
 import pandas as pd
-from typing import Union
+from typing import Union, Dict
 from helpers.price import calculate_price_momentum
 from indicators.rsi import calculate_macd, calculate_rsi
+from indicators.candles import analyze_candle_volume
 
 setup_classification = {
     'LONG_BOS': 'Break of Structure Long - Strong counter-trend reversal with high volume climax',
@@ -23,137 +24,26 @@ setup_classification = {
 
 
 def analyze_volume_patterns(data: pd.DataFrame, lookback: int = 20) -> dict:
-    """Analyze volume patterns with RSI integration"""
-    recent_data = data.tail(lookback).copy()
+    """
+    Analyze volume patterns with RSI integration
+    This function now uses the comprehensive analyze_candle_volume
 
-    # Calculate Volume RSI
-    volume_rsi = calculate_rsi(recent_data['volume'], rsi_length=14)
-    current_volume_rsi = volume_rsi.iloc[-1]
+    Parameters:
+    -----------
+    data: DataFrame with price and volume data
+    lookback: Number of periods to look back
 
-    # Analyze last candle
-    last_candle = recent_data.iloc[-1]
-    prev_candle = recent_data.iloc[-2]
+    Returns:
+    --------
+    Dict with volume analysis information
+    """
+    # Use the enhanced analyze_candle_volume function instead
+    analysis = analyze_candle_volume(
+        df=data, current_index=len(data)-1, lookback=lookback)
 
-    # Determine last candle type
-    is_bullish = last_candle['close'] > last_candle['open']
-    volume_increase = last_candle['volume'] > prev_candle['volume']
-
-    # Calculate candle body and wicks
-    body_size = abs(last_candle['close'] - last_candle['open'])
-    upper_wick = last_candle['high'] - \
-        max(last_candle['open'], last_candle['close'])
-    lower_wick = min(last_candle['open'],
-                     last_candle['close']) - last_candle['low']
-
-    # Classify last candle
-    if is_bullish:
-        if body_size > upper_wick and volume_increase:
-            candle_type = "STRONG_BUY"
-            candle_score = 90
-        elif body_size > upper_wick:
-            candle_type = "BUY"
-            candle_score = 70
-        elif upper_wick > body_size:
-            candle_type = "WEAK_BUY"
-            candle_score = 55
-        else:
-            candle_type = "NEUTRAL"
-            candle_score = 50
-    else:
-        if body_size > lower_wick and volume_increase:
-            candle_type = "STRONG_SELL"
-            candle_score = 10
-        elif body_size > lower_wick:
-            candle_type = "SELL"
-            candle_score = 30
-        elif lower_wick > body_size:
-            candle_type = "WEAK_SELL"
-            candle_score = 45
-        else:
-            candle_type = "NEUTRAL"
-            candle_score = 50
-
-    # Calculate recent candle patterns (last 3 candles)
-    recent_candles = recent_data.tail(5)
-    bullish_candles = recent_candles[recent_candles['close']
-                                     > recent_candles['open']]
-    bearish_candles = recent_candles[recent_candles['close']
-                                     <= recent_candles['open']]
-
-    buy_volume = bullish_candles['volume'].sum()
-    sell_volume = bearish_candles['volume'].sum()
-    total_volume = buy_volume + sell_volume
-
-    # Calculate volume metrics
-    avg_volume = recent_data['volume'].mean()
-    current_volume = last_candle['volume']
-    volume_ratio = current_volume / avg_volume
-
-    # Calculate buy/sell ratios
-    buy_ratio = (buy_volume / total_volume * 100) if total_volume > 0 else 0
-    sell_ratio = (sell_volume / total_volume * 100) if total_volume > 0 else 0
-
-    # Volume trend calculation
-    volume_trend = recent_data['volume'].pct_change().mean() * 100
-    volume_score = 0
-    if volume_trend > 0:
-        volume_score += 50  # Base score for positive trend
-    if buy_ratio > 60:
-        volume_score += 30  # Additional score for strong buying
-    elif sell_ratio > 60:
-        volume_score -= 30  # Penal
-    # Determine volume pressure
-    if candle_type in ["STRONG_BUY", "BUY"]:
-        if volume_ratio > 1.5:
-            pressure = "Strong Buying Pressure"
-            pressure_score = 90
-        else:
-            pressure = "Moderate Buying Pressure"
-            pressure_score = 70
-    elif candle_type in ["STRONG_SELL", "SELL"]:
-        if volume_ratio > 1.5:
-            pressure = "Strong Selling Pressure"
-            pressure_score = 10
-        else:
-            pressure = "Moderate Selling Pressure"
-            pressure_score = 30
-    else:
-        if buy_ratio > 60:
-            pressure = "Weak Buying Pressure"
-            pressure_score = 60
-        elif sell_ratio > 60:
-            pressure = "Weak Selling Pressure"
-            pressure_score = 40
-        else:
-            pressure = "Neutral Pressure"
-            pressure_score = 50
-
-    return {
-        'volume_rsi': current_volume_rsi,
-        'buy_ratio': buy_ratio,
-        'volume_score': volume_score,
-        'pressure_ratio': pressure_score / 100,
-        'sell_ratio': sell_ratio,
-        'volume_trend': volume_trend,
-        'analysis': {
-            'pressure': pressure,
-            'score': pressure_score,
-        },
-        'last_candle': {
-            'type': candle_type,
-            'score': candle_score,
-            'volume': current_volume,
-            'volume_ratio': volume_ratio,
-            'body_size': body_size,
-            'upper_wick': upper_wick,
-            'lower_wick': lower_wick
-        },
-        'recent_pattern': {
-            'bullish_count': len(bullish_candles),
-            'bearish_count': len(bearish_candles),
-            'dominant_side': 'BULLISH' if len(bullish_candles) > len(bearish_candles) else 'BEARISH'
-        }
-    }
+    # The analysis object already contains all the required fields
+    # from the original analyze_volume_patterns
+    return analysis
 
 
 def calculate_dynamic_risk_percentage(data: pd.DataFrame,

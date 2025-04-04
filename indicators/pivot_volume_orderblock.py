@@ -218,9 +218,14 @@ def detect_pivot_volume_order_blocks(
                         volume_strength + height_strength + historical_strength)
 
                     # Add to OB list if strong enough and passes additional filtering
-                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1, use_should_keep_ob):
-                        bull_obs.insert(0, ob)
-                        df.at[current_time, 'bull_ob'] = bottom
+                    if ob['strength'] >= strength_threshold:
+                        keep_ob, ob_score = should_keep_ob(
+                            df, ob, len(df)-1, use_should_keep_ob)
+                        if keep_ob:
+                            # Add score to the order block
+                            ob['score'] = ob_score
+                            bull_obs.insert(0, ob)
+                            df.at[current_time, 'bull_ob'] = bottom
 
             else:  # Bearish OB
                 # Bearish OB: high to mid of candle (TradingView: high[length], hl2[length])
@@ -292,9 +297,14 @@ def detect_pivot_volume_order_blocks(
                         volume_strength + height_strength + historical_strength)
 
                     # Add to OB list if strong enough and passes additional filtering
-                    if ob['strength'] >= strength_threshold and should_keep_ob(df, ob, len(df)-1, use_should_keep_ob):
-                        bear_obs.insert(0, ob)
-                        df.at[current_time, 'bear_ob'] = top
+                    if ob['strength'] >= strength_threshold:
+                        keep_ob, ob_score = should_keep_ob(
+                            df, ob, len(df)-1, use_should_keep_ob)
+                        if keep_ob:
+                            # Add score to the order block
+                            ob['score'] = ob_score
+                            bear_obs.insert(0, ob)
+                            df.at[current_time, 'bear_ob'] = top
 
         # Check for OB mitigation based on price movement
         # This follows TradingView's removal logic

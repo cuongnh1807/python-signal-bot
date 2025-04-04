@@ -7,7 +7,7 @@ import matplotlib.dates as mdates
 from binance.client import Client
 
 from binance_data_fetcher import BinanceDataFetcher
-from indicators.candles import should_keep_ob_flexible
+from indicators.candles import should_keep_ob
 from indicators.rsi import calculate_macd
 from helpers.price import merge_overlapping_order_blocks
 
@@ -133,10 +133,15 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         }
 
                         # Add to list if strong enough
-                        if ob['strength'] >= strength_threshold and should_keep_ob_flexible(df, ob, len(df)-1, use_should_keep_ob=use_should_keep_ob):
-                            bearish_obs.append(ob)
-                            historical_obs.append(ob)
-                        break
+                        if ob['strength'] >= strength_threshold:
+                            keep_ob, ob_score = should_keep_ob(df, ob, len(
+                                df)-1, use_should_keep_ob=use_should_keep_ob)
+                            if keep_ob:
+                                # Add score to the order block
+                                ob['score'] = ob_score
+                                bearish_obs.append(ob)
+                                historical_obs.append(ob)
+                            break
 
         # Bullish order block detection (after price momentum shift up)
         if row['crossover']:
@@ -172,10 +177,15 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         }
 
                         # Add to list if strong enough
-                        if ob['strength'] >= strength_threshold and should_keep_ob_flexible(df, ob, len(df)-1, use_should_keep_ob=use_should_keep_ob):
-                            bullish_obs.append(ob)
-                            historical_obs.append(ob)
-                        break
+                        if ob['strength'] >= strength_threshold:
+                            keep_ob, ob_score = should_keep_ob(df, ob, len(
+                                df)-1, use_should_keep_ob=use_should_keep_ob)
+                            if keep_ob:
+                                # Add score to the order block
+                                ob['score'] = ob_score
+                                bullish_obs.append(ob)
+                                historical_obs.append(ob)
+                            break
 
         # Check for order block mitigation
         if idx > 0:

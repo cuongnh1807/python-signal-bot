@@ -168,5 +168,5 @@ def should_keep_ob_flexible(df, ob, current_index, config=None, use_should_keep_
         momentum_score * config['momentum_weight'] +
         volume_score * config['volume_weight']
     )
-
-    return final_score >= config['min_score'], final_score
+    print(final_score)
+    return final_score >= config['min_score']

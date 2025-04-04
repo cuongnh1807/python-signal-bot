@@ -12,7 +12,7 @@ from indicators.rsi import calculate_macd
 from helpers.price import merge_overlapping_order_blocks
 
 
-def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_alert=False, sell_alert=False, volume_lookback=20, merge_threshold=0.7, max_blocks=10, atr_period=14, strength_threshold=70, use_should_keep_ob=True):
+def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_alert=False, sell_alert=False, volume_lookback=20, merge_threshold=0.7, max_blocks=20, atr_period=14, strength_threshold=70, use_should_keep_ob=True):
     """
     Detect bullish and bearish order blocks in a financial dataset based on Pine Script logic.
     Implements the Sonarlab Order Block detection algorithm from TradingView.
@@ -133,7 +133,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         }
 
                         # Add to list if strong enough
-                        if ob['strength'] >= strength_threshold and should_keep_ob_flexible(df, ob, len(df)-1, use_should_keep_ob):
+                        if ob['strength'] >= strength_threshold and should_keep_ob_flexible(df, ob, len(df)-1, use_should_keep_ob=use_should_keep_ob):
                             bearish_obs.append(ob)
                             historical_obs.append(ob)
                         break
@@ -172,7 +172,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         }
 
                         # Add to list if strong enough
-                        if ob['strength'] >= strength_threshold and should_keep_ob_flexible(df, ob, len(df)-1, use_should_keep_ob):
+                        if ob['strength'] >= strength_threshold and should_keep_ob_flexible(df, ob, len(df)-1, use_should_keep_ob=use_should_keep_ob):
                             bullish_obs.append(ob)
                             historical_obs.append(ob)
                         break

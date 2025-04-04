@@ -12,7 +12,7 @@ from indicators.rsi import calculate_macd
 from helpers.price import merge_overlapping_order_blocks
 
 
-def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Wick", buy_alert=False, sell_alert=False, volume_lookback=20, merge_threshold=0.7, max_blocks=10, atr_period=14, strength_threshold=70, use_should_keep_ob=True):
+def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_alert=False, sell_alert=False, volume_lookback=20, merge_threshold=0.7, max_blocks=10, atr_period=14, strength_threshold=70, use_should_keep_ob=True):
     """
     Detect bullish and bearish order blocks in a financial dataset based on Pine Script logic.
     Implements the Sonarlab Order Block detection algorithm from TradingView.
@@ -106,7 +106,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Wick", buy_al
 
                 # Look back for a green (bullish) candle to place the bearish order block
                 # This matches Pine Script: for i = 4 to 15 by 1; if close[i] > open[i]; last_green := i; break
-                for i in range(4, 16):
+                for i in range(4, 20):
                     lookback_idx = idx - i
                     if lookback_idx < 0:
                         break
@@ -365,7 +365,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--interval', type=str, default='15m', help='Interval to fetch data')
     parser.add_argument(
-        '--sensitivity', type=float, default=0.3, help='Sensitivity for order block detection (0.01-1.0)')
+        '--sensitivity', type=float, default=0.25, help='Sensitivity for order block detection (0.01-1.0)')
     parser.add_argument(
         '--mitigation', type=str, default='Wick', choices=['Wick', 'Close'],
         help='Method to determine when OBs are mitigated')
@@ -389,7 +389,7 @@ if __name__ == "__main__":
         sens=args.sensitivity,
         OBMitigationType=args.mitigation,
         max_blocks=args.max_blocks,
-        merge_threshold=0.7,
+        merge_threshold=0.5,
         use_should_keep_ob=True if args.use_should_keep_ob == 'True' else False
     )
 

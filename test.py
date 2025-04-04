@@ -24,17 +24,17 @@ bot = LiveTradingBot(
     interval='15m',
     max_risk_per_trade=0.02,
     leverage=20,
-    window_size=700,
-    min_setup_quality=70.0,
-    min_volume_ratio=3.0,
+    window_size=1000,
+    min_setup_quality=10,
+    min_volume_ratio=1,
     test_mode=True,
     telegram=None  # Không cần telegram cho test
 )
 
 bot._fetch_latest_data()
 
-# Lấy dữ liệu và phát hiện orderblocks
 df = bot.historical_data
+print(df)
 orderblocks = smc.ob(df, 'sensitive')
 print(orderblocks)
 

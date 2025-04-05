@@ -416,8 +416,8 @@ class LiveTradingBot:
         self.telegram = telegram
 
         # Set up signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        # signal.signal(signal.SIGINT, self._signal_handler)
+        # signal.signal(signal.SIGTERM, self._signal_handler)
 
         # New parameter
         self.max_distance_to_current_price = max_distance_to_current_price

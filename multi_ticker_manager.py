@@ -2,12 +2,13 @@ import os
 import time
 import json
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List
 from live_trading_bot import LiveTradingBot, TelegramNotifier
 from binance.client import Client
-# from telegram_notifier import TelegramNotifier
 
-# Cấu hình logging
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -40,7 +41,7 @@ class MultiTickerManager:
         self.telegram_config = telegram_config
         self.telegram = None
 
-        # Tải cấu hình
+        # Load configuration
         self.load_config()
 
     def load_config(self):
@@ -78,57 +79,63 @@ class MultiTickerManager:
             logger.error(f"Error loading configuration: {str(e)}")
             raise
 
-    def start_all(self):
+    def _start_single_bot(self, ticker_config):
+        """Start a single bot"""
+        try:
+            symbol = ticker_config.get('symbol')
+            if not symbol:
+                logger.warning("Skipping ticker config without symbol")
+                return
 
-        for ticker_config in self.ticker_configs:
-            try:
-                symbol = ticker_config.get('symbol')
-                if not symbol:
-                    logger.warning("Skipping ticker config without symbol")
-                    continue
+            if symbol in self.bots:
+                logger.warning(f"Bot for {symbol} already running, skipping")
+                return
 
-                if symbol in self.bots:
-                    logger.warning(
-                        f"Bot for {symbol} already running, skipping")
-                    continue
+            # Create a new bot
+            bot = LiveTradingBot(
+                client=self.client,
+                symbol=symbol,
+                symbol_precision=self.symbol_precision[symbol],
+                interval=ticker_config.get('interval', '15m'),
+                max_risk_per_trade=ticker_config.get(
+                    'max_risk_per_trade', 0.02),
+                leverage=ticker_config.get('leverage', 20),
+                window_size=ticker_config.get('window_size', 100),
+                min_setup_quality=ticker_config.get('min_setup_quality', 70.0),
+                min_volume_ratio=ticker_config.get('min_volume_ratio', 3.0),
+                max_distance_to_current_price=ticker_config.get(
+                    'max_distance_to_current_price', 5.0),
+                test_mode=self.test_mode,
+                telegram=self.telegram
+            )
 
-                # Tạo bot mới
-                bot = LiveTradingBot(
-                    client=self.client,
-                    symbol=symbol,
-                    symbol_precision=self.symbol_precision[symbol],
-                    interval=ticker_config.get('interval', '15m'),
-                    max_risk_per_trade=ticker_config.get(
-                        'max_risk_per_trade', 0.02),
-                    leverage=ticker_config.get('leverage', 20),
-                    window_size=ticker_config.get('window_size', 100),
-                    min_setup_quality=ticker_config.get(
-                        'min_setup_quality', 70.0),
-                    min_volume_ratio=ticker_config.get(
-                        'min_volume_ratio', 3.0),
-                    max_distance_to_current_price=ticker_config.get(
-                        'max_distance_to_current_price', 5.0),
-                    test_mode=self.test_mode,
-                    telegram=self.telegram
-                )
+            # Khởi động bot
+            bot.start()
 
-                # Khởi động bot
-                bot.start()
-
+            # Thêm vào dictionary bots một cách thread-safe
+            with threading.Lock():
                 self.bots[symbol] = bot
 
-                logger.info(f"Started bot for {symbol}")
+            logger.info(f"Started bot for {symbol}")
 
-                time.sleep(2)
+        except Exception as e:
+            logger.error(
+                f"Error starting bot for {ticker_config.get('symbol', 'unknown')}: {str(e)}")
 
-            except Exception as e:
-                logger.error(
-                    f"Error starting bot for {ticker_config.get('symbol', 'unknown')}: {str(e)}")
+    def start_all(self):
+        """Start all bots"""
+        with ThreadPoolExecutor(max_workers=len(self.ticker_configs)) as executor:
+            futures = [executor.submit(self._start_single_bot, config)
+                       for config in self.ticker_configs]
+
+            # Đợi tất cả các bot khởi động xong
+            for future in futures:
+                future.result()
 
         logger.info(f"Started {len(self.bots)} bots")
 
     def stop_all(self):
-        """Dừng tất cả các bot giao dịch"""
+        """Stop all bots"""
         for symbol, bot in list(self.bots.items()):
             try:
                 bot.stop()
@@ -140,10 +147,10 @@ class MultiTickerManager:
         logger.info("All bots stopped")
 
     def restart_bot(self, symbol: str):
-        """Khởi động lại bot cho một ticker cụ thể"""
+        """Restart a specific bot"""
         if symbol in self.bots:
             try:
-                # Dừng bot hiện tại
+                # Stop the current bot
                 self.bots[symbol].stop()
 
                 # Tìm cấu hình cho ticker này
@@ -185,7 +192,7 @@ class MultiTickerManager:
             logger.warning(f"No bot running for {symbol}")
 
     def update_config(self, new_config_path: str = None):
-        """Cập nhật cấu hình và khởi động lại các bot"""
+        """Update configuration and restart all bots"""
         if new_config_path:
             self.config_path = new_config_path
 
@@ -211,7 +218,6 @@ class MultiTickerManager:
         return status
 
     def get_open_positions(self) -> Dict[str, List]:
-        """Lấy danh sách vị thế mở của tất cả các bot"""
         positions = {}
         for symbol, bot in self.bots.items():
             positions[symbol] = bot.get_open_positions()
@@ -219,7 +225,6 @@ class MultiTickerManager:
         return positions
 
     def get_active_orders(self) -> Dict[str, List]:
-        """Lấy danh sách lệnh đang hoạt động của tất cả các bot"""
         orders = {}
         for symbol, bot in self.bots.items():
             orders[symbol] = bot.get_active_orders()

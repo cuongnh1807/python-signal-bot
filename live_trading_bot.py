@@ -192,7 +192,7 @@ class TelegramNotifier:
             f"Position Size: <b>${position_size:.2f}</b>"
         )
 
-        self.send_message(message)
+        self.send_message(message, topic_id=self.orders_topic_id)
 
     def notify_position_closed(self, position: Dict):
         """Send notification about a closed position"""
@@ -224,7 +224,7 @@ class TelegramNotifier:
             f"P&L: <b>${profit:.2f}</b> ({profit_percent:.2f}%)"
         )
 
-        self.send_message(message)
+        self.send_message(message, topic_id=self.orders_topic_id)
 
     def notify_error(self, error_message: str):
         """Send notification about an error"""

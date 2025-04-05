@@ -38,7 +38,7 @@ class BinanceDataFetcher:
 
         try:
             # Gọi API không có tham số timestamp
-            klines = self.client.get_historical_klines(
+            klines = self.client.futures_historical_klines(
                 symbol=symbol,
                 interval=interval,
                 start_str=start_ms,

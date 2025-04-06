@@ -134,18 +134,18 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         }
 
                         # Add to list if strong enough
-                        if ob['strength'] >= strength_threshold:
-                            keep_ob, result = should_keep_ob(df, ob, len(
-                                df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis)
-                            if keep_ob:
-                                # Add score and quality info to the order block
-                                ob['score'] = result["final_score"]
-                                ob['setup_quality'] = result["setup_quality"]
-                                ob['warnings'] = result["warnings"]
-                                ob['entry_quality'] = result.get(
-                                    "entry_quality", "Unknown")
-                                bearish_obs.append(ob)
-                                historical_obs.append(ob)
+                        # if ob['strength'] >= strength_threshold:
+                        keep_ob, result = should_keep_ob(df, ob, len(
+                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis)
+                        if keep_ob:
+                            # Add score and quality info to the order block
+                            ob['score'] = result["final_score"]
+                            ob['setup_quality'] = result["setup_quality"]
+                            ob['warnings'] = result["warnings"]
+                            ob['entry_quality'] = result.get(
+                                "entry_quality", "Unknown")
+                            bearish_obs.append(ob)
+                            historical_obs.append(ob)
                             break
 
         # Bullish order block detection (after price momentum shift up)
@@ -182,18 +182,18 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         }
 
                         # Add to list if strong enough
-                        if ob['strength'] >= strength_threshold:
-                            keep_ob, result = should_keep_ob(df, ob, len(
-                                df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis)
-                            if keep_ob:
-                                # Add score and quality info to the order block
-                                ob['score'] = result["final_score"]
-                                ob['setup_quality'] = result["setup_quality"]
-                                ob['warnings'] = result["warnings"]
-                                ob['entry_quality'] = result.get(
-                                    "entry_quality", "Unknown")
-                                bullish_obs.append(ob)
-                                historical_obs.append(ob)
+                        # if ob['strength'] >= strength_threshold:
+                        keep_ob, result = should_keep_ob(df, ob, len(
+                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis)
+                        if keep_ob:
+                            # Add score and quality info to the order block
+                            ob['score'] = result["final_score"]
+                            ob['setup_quality'] = result["setup_quality"]
+                            ob['warnings'] = result["warnings"]
+                            ob['entry_quality'] = result.get(
+                                "entry_quality", "Unknown")
+                            bullish_obs.append(ob)
+                            historical_obs.append(ob)
                             break
 
         # Check for order block mitigation
@@ -429,7 +429,7 @@ if __name__ == "__main__":
         sens=args.sensitivity,
         OBMitigationType=args.mitigation,
         max_blocks=args.max_blocks,
-        merge_threshold=0.5,
+        merge_threshold=0.1,
         use_should_keep_ob=True if args.use_should_keep_ob == 'True' else False
     )
 

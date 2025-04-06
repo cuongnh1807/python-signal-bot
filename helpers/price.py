@@ -121,65 +121,103 @@ def adjust_precision(value, precision):
     return round(value, precision)
 
 
-def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
+def merge_overlapping_order_blocks(obs, threshold):
     """
-    Gộp các order block chồng lấp dựa trên mức độ chồng lấp về giá.
+    Merge overlapping order blocks with enhanced handling of quality metrics.
 
     Parameters:
-        order_blocks (list): Danh sách các order block
-        threshold (float): Ngưỡng chồng lấp để gộp (0-1), mặc định là 0.5 (50%)
+        obs (list): List of order blocks
+        threshold (float): Overlap threshold for merging (0-1)
 
     Returns:
-        list: Danh sách các order block sau khi gộp
+        list: Merged order blocks list
     """
-    if not order_blocks:
+    if not obs:
         return []
 
-    sorted_obs = sorted(order_blocks, key=lambda x: x['left_time'])
-    merged_obs = []
+    # Sort by position
+    sorted_obs = sorted(obs, key=lambda x: (x['top'] + x['bottom']) / 2)
 
-    i = 0
-    while i < len(sorted_obs):
-        current_ob = sorted_obs[i]
+    merged = []
+    current = sorted_obs[0]
 
-        j = i + 1
-        while j < len(sorted_obs):
-            next_ob = sorted_obs[j]
+    for next_ob in sorted_obs[1:]:
+        # Calculate overlap
+        overlap_height = min(
+            current['top'], next_ob['top']) - max(current['bottom'], next_ob['bottom'])
+        total_height = max(current['top'], next_ob['top']) - \
+            min(current['bottom'], next_ob['bottom'])
 
-            # Tính toán mức độ chồng lấp
-            current_range = current_ob['top'] - current_ob['bottom']
-            next_range = next_ob['top'] - next_ob['bottom']
+        # If overlap is significant, merge
+        if overlap_height > 0 and overlap_height / total_height >= threshold:
+            # Merge boundaries
+            merged_ob = {
+                'direction': current['direction'],
+                'top': max(current['top'], next_ob['top']),
+                'bottom': min(current['bottom'], next_ob['bottom']),
+                'left_time': min(current['left_time'], next_ob['left_time']),
+                'mitigated': current['mitigated'] and next_ob['mitigated'],
+                'mitigated_time': max(current['mitigated_time'], next_ob['mitigated_time']) if current['mitigated'] and next_ob['mitigated'] else None,
+                'index': min(current['index'], next_ob['index']),
+                'strength': max(current['strength'], next_ob['strength']),
+                'atr': (current['atr'] + next_ob['atr']) / 2,
+                'volume': max(current['volume'], next_ob['volume'])
+            }
 
-            overlap_top = min(current_ob['top'], next_ob['top'])
-            overlap_bottom = max(current_ob['bottom'], next_ob['bottom'])
+            # Calculate average price in merged zone
+            merged_ob['avg'] = (merged_ob['top'] + merged_ob['bottom']) / 2
+            merged_ob['height'] = merged_ob['top'] - merged_ob['bottom']
 
-            if overlap_bottom < overlap_top:
-                overlap_range = overlap_top - overlap_bottom
-                overlap_ratio = overlap_range / min(current_range, next_range)
+            # Enhanced handling of quality metrics from should_keep_ob
+            if 'setup_quality' in current and 'setup_quality' in next_ob:
+                # Base quality is the max of both blocks
+                base_quality = max(current.get(
+                    'setup_quality', 0), next_ob.get('setup_quality', 0))
 
-                if overlap_ratio >= threshold:
-                    current_ob = {
-                        'index': min(current_ob['index'], next_ob['index']),
-                        'top': max(current_ob['top'], next_ob['top']),
-                        'bottom': min(current_ob['bottom'], next_ob['bottom']),
-                        'left_time': min(current_ob['left_time'], next_ob['left_time']),
-                        'direction': current_ob['direction'],
-                        'atr': max(current_ob['atr'] or 0, next_ob['atr'] or 0),
-                        'mitigated_time': None,
-                        'avg': (max(current_ob['top'], next_ob['top']) +
-                                min(current_ob['bottom'], next_ob['bottom'])) / 2,
-                        'volume': max(current_ob['volume'] or 0, next_ob['volume'] or 0),
-                        'strength': max(current_ob['strength'] or 0, next_ob['strength'] or 0)
-                    }
+                # Add a bonus for overlapping blocks (confirms importance of zone)
+                # Bonus scales with strength and is capped at 15 points
+                strength_bonus = min(
+                    15, ((current['strength'] + next_ob['strength'])/200) * 10)
 
-                    # Xóa order block đã gộp và tiếp tục kiểm tra
-                    sorted_obs.pop(j)
+                # Ensure we don't exceed 100
+                merged_ob['setup_quality'] = min(
+                    100, base_quality + strength_bonus)
+
+                # Calculate improved entry quality
+                if current.get('entry_quality') in ['Excellent', 'Good'] or next_ob.get('entry_quality') in ['Excellent', 'Good']:
+                    # Upgrade entry quality for confirmed zones
+                    if base_quality >= 75:
+                        merged_ob['entry_quality'] = 'Excellent'
+                    elif base_quality >= 60:
+                        merged_ob['entry_quality'] = 'Good'
+                    else:
+                        merged_ob['entry_quality'] = max(current.get(
+                            'entry_quality', 'Poor'), next_ob.get('entry_quality', 'Poor'))
                 else:
-                    j += 1
-            else:
-                j += 1
+                    merged_ob['entry_quality'] = max(current.get(
+                        'entry_quality', 'Poor'), next_ob.get('entry_quality', 'Poor'))
 
-        merged_obs.append(current_ob)
-        i += 1
+                # Merge warnings, removing duplicates
+                merged_ob['warnings'] = list(
+                    set(current.get('warnings', []) + next_ob.get('warnings', [])))
 
-    return merged_obs
+                # Add a note about the merge for clarity
+                merged_ob['warnings'].append(
+                    f"Merged from {len(sorted_obs)} overlapping order blocks")
+
+                # Calculate new score
+                if 'score' in current and 'score' in next_ob:
+                    merged_ob['score'] = max(current.get(
+                        'score', 0), next_ob.get('score', 0)) + strength_bonus
+
+            # Update current with merged
+            current = merged_ob
+        else:
+            # No significant overlap, add current to merged list and move to next
+            merged.append(current)
+            current = next_ob
+
+    # Add the final block
+    merged.append(current)
+
+    return merged

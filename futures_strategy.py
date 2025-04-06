@@ -105,12 +105,6 @@ class FuturesStrategy:
             if volume_ratio < min_volume_ratio:
                 continue
 
-            # Check for critical warning messages
-            if respect_warnings and self._has_critical_warnings(setup):
-                logger.info(
-                    f"Rejecting setup due to critical warnings: {setup.get('warning_messages', [])}")
-                continue
-
             # Determine position side
             side = "LONG" if setup['position_type'] == 'LONG' else "SHORT"
             # Extract order block levels

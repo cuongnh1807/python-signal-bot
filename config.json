@@ -36,7 +36,17 @@
       "max_risk_per_trade": 0.01,
       "leverage": 10,
       "window_size": 400,
-      "min_setup_quality": 60,
+      "min_setup_quality": 50,
+      "min_volume_ratio": 1.2,
+      "max_distance_to_current_price": 1.2
+    },
+    {
+      "symbol": "XRPUSDT",
+      "interval": "15m",
+      "max_risk_per_trade": 0.01,
+      "leverage": 10,
+      "window_size": 400,
+      "min_setup_quality": 50,
       "min_volume_ratio": 1.2,
       "max_distance_to_current_price": 1.2
     }

@@ -55,7 +55,7 @@ def analyze_candle_volume(df: pd.DataFrame, current_index: int, lookback: int = 
             f"current_index {current_index} is out of bounds for df with length {len(df)}")
 
     # Extract recent data
-    recent_data = df.iloc[max(0, current_index-lookback+1)                          :current_index+1].copy()
+    recent_data = df.iloc[max(0, current_index-lookback+1):current_index+1].copy()
     current_candle = df.iloc[current_index]
     prev_candle = df.iloc[current_index-1] if current_index > 0 else None
 
@@ -251,7 +251,7 @@ def analyze_candle_volume(df: pd.DataFrame, current_index: int, lookback: int = 
     }
 
 
-def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_keep_ob: bool = True) -> Tuple[bool, float]:
+def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_keep_ob: bool = True, analysis: Dict = None) -> Tuple[bool, float]:
     """
     Enhanced unified function to evaluate order blocks
 
@@ -270,9 +270,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         return True, 100
 
     ob_direction = ob['direction']
-
-    # Get enhanced volume and candle analysis
-    analysis = analyze_candle_volume(df, current_index)
+    analysis = analysis or analyze_candle_volume(df, current_index)
 
     # Get pin bar and engulfing signals
     pin_bar = is_pin_bar(df.iloc[current_index])

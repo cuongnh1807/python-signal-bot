@@ -50,13 +50,13 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
                                       volume_score: float,
                                       ob_height_percent: float,
                                       ob_direction: int,
+                                      momentum_data: dict = None
                                       ) -> dict:
     """
     Calculate dynamic risk percentage with enhanced momentum analysis
     """
 
     # Calculate momentum indicators
-    momentum_data = calculate_price_momentum(data, lookback=20)
 
     # Initialize risk factors dictionary with balanced weights - giữ tổng là 1.0
     risk_factors = {
@@ -293,7 +293,7 @@ def calculate_velocity(data: pd.DataFrame, lookback: int = 3) -> dict:
     }
 
 
-def analyze_trading_setup(data, lookback_volume: int = 50):
+def analyze_trading_setup(data, lookback_volume: int = 30):
     """
     Analyze trading setups and calculate order percentages for active order blocks only
     """
@@ -328,6 +328,7 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
     velocity = calculate_velocity(data, 20)
 
     volume_analysis = analyze_volume_patterns(data, lookback=20)
+    momentum_data = calculate_price_momentum(data, lookback=20)
 
     # Analyze each order block
     for i in range(len(ob_results)):
@@ -348,6 +349,7 @@ def analyze_trading_setup(data, lookback_volume: int = 50):
             volume_score=volume_score,
             ob_height_percent=ob_height_percent,
             ob_direction=ob_direction,
+            momentum_data=momentum_data
         )
 
         # Determine setup type based on OB direction, trend, and volume pressure

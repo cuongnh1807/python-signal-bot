@@ -135,7 +135,6 @@ def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
     if not order_blocks:
         return []
 
-    # Sắp xếp order blocks theo thời gian bắt đầu
     sorted_obs = sorted(order_blocks, key=lambda x: x['left_time'])
     merged_obs = []
 
@@ -143,7 +142,6 @@ def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
     while i < len(sorted_obs):
         current_ob = sorted_obs[i]
 
-        # Kiểm tra xem có thể gộp với order block tiếp theo không
         j = i + 1
         while j < len(sorted_obs):
             next_ob = sorted_obs[j]
@@ -155,13 +153,11 @@ def merge_overlapping_order_blocks(order_blocks, threshold=0.7):
             overlap_top = min(current_ob['top'], next_ob['top'])
             overlap_bottom = max(current_ob['bottom'], next_ob['bottom'])
 
-            if overlap_bottom < overlap_top:  # Có chồng lấp
+            if overlap_bottom < overlap_top:
                 overlap_range = overlap_top - overlap_bottom
                 overlap_ratio = overlap_range / min(current_range, next_range)
 
-                # Nếu chồng lấp đủ lớn, gộp chúng lại
                 if overlap_ratio >= threshold:
-                    # Tạo order block mới từ việc gộp
                     current_ob = {
                         'index': min(current_ob['index'], next_ob['index']),
                         'top': max(current_ob['top'], next_ob['top']),

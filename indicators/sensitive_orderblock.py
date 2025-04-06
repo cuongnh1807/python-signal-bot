@@ -135,11 +135,15 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
 
                         # Add to list if strong enough
                         if ob['strength'] >= strength_threshold:
-                            keep_ob, ob_score = should_keep_ob(df, ob, len(
+                            keep_ob, result = should_keep_ob(df, ob, len(
                                 df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis)
                             if keep_ob:
-                                # Add score to the order block
-                                ob['score'] = ob_score
+                                # Add score and quality info to the order block
+                                ob['score'] = result["final_score"]
+                                ob['setup_quality'] = result["setup_quality"]
+                                ob['warnings'] = result["warnings"]
+                                ob['entry_quality'] = result.get(
+                                    "entry_quality", "Unknown")
                                 bearish_obs.append(ob)
                                 historical_obs.append(ob)
                             break
@@ -179,11 +183,15 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
 
                         # Add to list if strong enough
                         if ob['strength'] >= strength_threshold:
-                            keep_ob, ob_score = should_keep_ob(df, ob, len(
+                            keep_ob, result = should_keep_ob(df, ob, len(
                                 df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis)
                             if keep_ob:
-                                # Add score to the order block
-                                ob['score'] = ob_score
+                                # Add score and quality info to the order block
+                                ob['score'] = result["final_score"]
+                                ob['setup_quality'] = result["setup_quality"]
+                                ob['warnings'] = result["warnings"]
+                                ob['entry_quality'] = result.get(
+                                    "entry_quality", "Unknown")
                                 bullish_obs.append(ob)
                                 historical_obs.append(ob)
                             break
@@ -391,8 +399,29 @@ if __name__ == "__main__":
     client = Client()
     fetchData = BinanceDataFetcher(client)
     start_time = datetime.now() - timedelta(days=args.days)
-    data = fetchData.get_historical_klines(
-        args.symbol, interval=args.interval, start_time=start_time)
+    rawData = client.get_historical_klines(
+        args.symbol, interval=args.interval, start_str=int(start_time.timestamp() * 1000), end_str=int((datetime.now() - timedelta(minutes=90)).timestamp() * 1000))
+    data = pd.DataFrame(rawData, columns=[
+        'timestamp', 'open', 'high', 'low', 'close', 'volume',
+        'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+        'taker_buy_quote', 'ignored'
+    ])
+    data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        data[col] = data[col].astype(float)
+
+    data.set_index('timestamp', inplace=True)
+
+    # Verify the DataFrame has required columns
+    required_columns = ['open', 'high', 'low', 'close', 'volume']
+    missing_columns = [
+        col for col in required_columns if col not in data.columns]
+    if missing_columns:
+        raise ValueError(
+            f"Missing required columns: {missing_columns}")
+
+    # data = fetchData.get_historical_klines(
+    #     args.symbol, interval=args.interval, start_time=start_time)
 
     # Detect order blocks with the improved algorithm
     order_blocks = detect_order_sensitive_blocks(

@@ -35,6 +35,285 @@ def is_engulfing(df, i):
     return 1 if bull_engulf else (-1 if bear_engulf else 0)
 
 
+def detect_strong_selling_candles(df: pd.DataFrame, start_idx: int, end_idx: int) -> Tuple[bool, float, int]:
+    """
+    Detect strong selling candles within a range
+
+    Parameters:
+    -----------
+    df: DataFrame with price and volume data
+    start_idx: Start index for analysis
+    end_idx: End index for analysis
+
+    Returns:
+    --------
+    Tuple[bool, float, int]: Whether strong selling is detected, strength score, and count of strong candles
+    """
+    if start_idx >= len(df) or end_idx >= len(df) or start_idx > end_idx:
+        return False, 0, 0
+
+    range_data = df.iloc[start_idx:end_idx+1]
+
+    # Count bearish candles with significant bodies
+    strong_bearish_count = 0
+    total_volume_ratio = 0
+    total_body_ratio = 0
+
+    prev_candle = None
+    for idx, candle in range_data.iterrows():
+        is_bearish = candle['close'] < candle['open']
+
+        if is_bearish:
+            body_size = abs(candle['close'] - candle['open'])
+            candle_range = candle['high'] - candle['low']
+            body_ratio = body_size / candle_range if candle_range > 0 else 0
+
+            # Check if this is a significant bearish candle
+            if body_ratio > 0.5:  # Body is at least 50% of the candle range
+                strong_bearish_count += 1
+                total_body_ratio += body_ratio
+
+                # Check volume if we have a previous candle
+                if prev_candle is not None:
+                    volume_ratio = candle['volume'] / \
+                        prev_candle['volume'] if prev_candle['volume'] > 0 else 1
+                    total_volume_ratio += volume_ratio
+
+        prev_candle = candle
+
+    # Calculate strength metrics
+    avg_body_ratio = total_body_ratio / \
+        strong_bearish_count if strong_bearish_count > 0 else 0
+    avg_volume_ratio = total_volume_ratio / \
+        (strong_bearish_count - 1) if strong_bearish_count > 1 else 0
+
+    # Calculate overall strength score
+    strength_score = 0
+
+    # Base score on count of strong bearish candles
+    if strong_bearish_count == 1:
+        strength_score = 30
+    elif strong_bearish_count == 2:
+        strength_score = 60
+    elif strong_bearish_count >= 3:
+        strength_score = 80
+
+    # Adjust score based on average body ratio
+    if avg_body_ratio > 0.7:
+        strength_score += 20
+    elif avg_body_ratio > 0.5:
+        strength_score += 10
+
+    # Adjust score based on volume
+    if avg_volume_ratio > 1.5:
+        strength_score += 20
+    elif avg_volume_ratio > 1.0:
+        strength_score += 10
+
+    # Cap score at 100
+    strength_score = min(100, strength_score)
+
+    # Determine if this is strong selling
+    is_strong_selling = strength_score >= 50
+
+    return is_strong_selling, strength_score, strong_bearish_count
+
+
+def detect_strong_buying_candles(df: pd.DataFrame, start_idx: int, end_idx: int) -> Tuple[bool, float, int]:
+    """
+    Detect strong buying candles within a range
+
+    Parameters:
+    -----------
+    df: DataFrame with price and volume data
+    start_idx: Start index for analysis
+    end_idx: End index for analysis
+
+    Returns:
+    --------
+    Tuple[bool, float, int]: Whether strong buying is detected, strength score, and count of strong candles
+    """
+    if start_idx >= len(df) or end_idx >= len(df) or start_idx > end_idx:
+        return False, 0, 0
+
+    range_data = df.iloc[start_idx:end_idx+1]
+
+    # Count bullish candles with significant bodies
+    strong_bullish_count = 0
+    total_volume_ratio = 0
+    total_body_ratio = 0
+
+    prev_candle = None
+    for idx, candle in range_data.iterrows():
+        is_bullish = candle['close'] > candle['open']
+
+        if is_bullish:
+            body_size = abs(candle['close'] - candle['open'])
+            candle_range = candle['high'] - candle['low']
+            body_ratio = body_size / candle_range if candle_range > 0 else 0
+
+            # Check if this is a significant bullish candle
+            if body_ratio > 0.5:  # Body is at least 50% of the candle range
+                strong_bullish_count += 1
+                total_body_ratio += body_ratio
+
+                # Check volume if we have a previous candle
+                if prev_candle is not None:
+                    volume_ratio = candle['volume'] / \
+                        prev_candle['volume'] if prev_candle['volume'] > 0 else 1
+                    total_volume_ratio += volume_ratio
+
+        prev_candle = candle
+
+    # Calculate strength metrics
+    avg_body_ratio = total_body_ratio / \
+        strong_bullish_count if strong_bullish_count > 0 else 0
+    avg_volume_ratio = total_volume_ratio / \
+        (strong_bullish_count - 1) if strong_bullish_count > 1 else 0
+
+    # Calculate overall strength score
+    strength_score = 0
+
+    # Base score on count of strong bullish candles
+    if strong_bullish_count == 1:
+        strength_score = 30
+    elif strong_bullish_count == 2:
+        strength_score = 60
+    elif strong_bullish_count >= 3:
+        strength_score = 80
+
+    # Adjust score based on average body ratio
+    if avg_body_ratio > 0.7:
+        strength_score += 20
+    elif avg_body_ratio > 0.5:
+        strength_score += 10
+
+    # Adjust score based on volume
+    if avg_volume_ratio > 1.5:
+        strength_score += 20
+    elif avg_volume_ratio > 1.0:
+        strength_score += 10
+
+    # Cap score at 100
+    strength_score = min(100, strength_score)
+
+    # Determine if this is strong buying
+    is_strong_buying = strength_score >= 50
+
+    return is_strong_buying, strength_score, strong_bullish_count
+
+
+def detect_strong_reversal_signal(df: pd.DataFrame, current_index: int, direction: int) -> Tuple[bool, float]:
+    """
+    Detect strong reversal signals against a given direction
+
+    Parameters:
+    -----------
+    df: DataFrame with price and volume data
+    current_index: Current candle index
+    direction: Expected direction (1 for bullish, -1 for bearish)
+
+    Returns:
+    --------
+    Tuple[bool, float]: Whether a strong reversal is detected and confidence score
+    """
+    # Need at least 3 candles
+    if current_index < 3:
+        return False, 0
+
+    # Look back further for pattern detection
+    lookback = min(5, current_index)
+    start_idx = current_index - lookback
+
+    # For bullish OB, check for strong selling pattern (bearish reversal)
+    if direction == 1:
+        is_strong_selling, selling_strength, selling_count = detect_strong_selling_candles(
+            df, start_idx, current_index)
+
+        # If we detect strong selling pattern, return immediately with high confidence
+        if is_strong_selling and selling_strength >= 70:
+            return True, selling_strength
+
+    # For bearish OB, check for strong buying pattern (bullish reversal)
+    elif direction == -1:
+        is_strong_buying, buying_strength, buying_count = detect_strong_buying_candles(
+            df, start_idx, current_index)
+
+        # If we detect strong buying pattern, return immediately with high confidence
+        if is_strong_buying and buying_strength >= 70:
+            return True, buying_strength
+
+    # Evaluate last 3 candles for more nuanced signals
+    recent_candles = df.iloc[current_index-3:current_index+1]
+
+    # Counters for reversal signals
+    counter_candles = 0  # Candles against direction
+    strong_counter_body = 0  # Candles with strong bodies
+    high_volume_signals = 0  # Candles with high volume
+
+    # Analyze recent price action
+    for i in range(len(recent_candles)):
+        candle = recent_candles.iloc[i]
+
+        # Basic candle properties
+        is_bull = candle['close'] > candle['open']
+        candle_size = abs(candle['close'] - candle['open'])
+        candle_range = candle['high'] - candle['low']
+        rel_body_size = candle_size / candle_range if candle_range > 0 else 0
+
+        # Check if candle direction is against our expected direction
+        if (direction == 1 and not is_bull) or (direction == -1 and is_bull):
+            counter_candles += 1
+
+            # Strong body candle
+            if rel_body_size > 0.6:
+                strong_counter_body += 1
+
+            # Check for high volume
+            if i > 0:
+                prev_volume = recent_candles.iloc[i-1]['volume']
+                if candle['volume'] > prev_volume * 1.5:
+                    high_volume_signals += 1
+
+    # Calculate a confidence score for reversal
+    confidence = 0
+
+    # Basic reversal score based on counter candles
+    if counter_candles >= 2:
+        confidence += 30
+
+    # Bonus for strong body candles
+    confidence += strong_counter_body * 20
+
+    # Bonus for high volume
+    confidence += high_volume_signals * 15
+
+    # Check additional technical indicators if available
+    try:
+        # Check MACD for momentum change
+        macd = df['macd'].iloc[current_index]
+        macd_signal = df['macd_signal'].iloc[current_index]
+        macd_hist = df['macd_hist'].iloc[current_index]
+        prev_hist = df['macd_hist'].iloc[current_index -
+                                         1] if current_index > 0 else 0
+
+        # MACD momentum against our direction
+        if (direction == 1 and macd < macd_signal) or (direction == -1 and macd > macd_signal):
+            confidence += 15
+
+        # MACD histogram changing against our direction
+        if (direction == 1 and macd_hist < prev_hist) or (direction == -1 and macd_hist > prev_hist):
+            confidence += 15
+    except:
+        # MACD columns not available
+        pass
+
+    # Is this a strong enough reversal signal?
+    is_reversal = confidence >= 50
+
+    return is_reversal, confidence
+
+
 def analyze_candle_volume(df: pd.DataFrame, current_index: int, lookback: int = 20) -> Dict:
     """
     Comprehensive function to analyze candle and volume patterns
@@ -55,7 +334,8 @@ def analyze_candle_volume(df: pd.DataFrame, current_index: int, lookback: int = 
             f"current_index {current_index} is out of bounds for df with length {len(df)}")
 
     # Extract recent data
-    recent_data = df.iloc[max(0, current_index-lookback+1):current_index+1].copy()
+    recent_data = df.iloc[max(0, current_index-lookback+1)
+                              :current_index+1].copy()
     current_candle = df.iloc[current_index]
     prev_candle = df.iloc[current_index-1] if current_index > 0 else None
 
@@ -251,9 +531,9 @@ def analyze_candle_volume(df: pd.DataFrame, current_index: int, lookback: int = 
     }
 
 
-def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_keep_ob: bool = True, analysis: Dict = None) -> Tuple[bool, float]:
+def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_keep_ob: bool = True, analysis: Dict = None) -> Tuple[bool, Dict]:
     """
-    Enhanced unified function to evaluate order blocks
+    Enhanced unified function to evaluate order blocks with early detection of strong reversals
 
     Parameters:
     -----------
@@ -261,20 +541,114 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     ob: Dictionary containing order block information
     current_index: Current candle index
     use_should_keep_ob: Flag to determine whether to evaluate OB (set to False to always return True)
+    analysis: Pre-computed candle and volume analysis
 
     Returns:
     --------
-    Tuple[bool, float]: Decision to keep OB and confidence score
+    Tuple[bool, Dict]: Decision to keep OB and dictionary with detailed analysis results
     """
     if not use_should_keep_ob:
-        return True, 100
+        return True, {"setup_quality": 100, "final_score": 100, "threshold": 0, "warnings": []}
 
     ob_direction = ob['direction']
+    ob_direction_str = "BULLISH" if ob_direction == 1 else "BEARISH"
     analysis = analysis or analyze_candle_volume(df, current_index)
 
     # Get pin bar and engulfing signals
     pin_bar = is_pin_bar(df.iloc[current_index])
     engulfing = is_engulfing(df, current_index)
+
+    # Create warnings list for tracking issues
+    warnings = []
+
+    # Check for strong reversal signal against OB direction
+    is_reversal, reversal_confidence = detect_strong_reversal_signal(
+        df, current_index, ob_direction)
+
+    # Check for specific reversal pattern to provide more detailed information
+    reversal_type = "unknown"
+    if ob_direction == 1:  # Bullish OB
+        is_strong_selling, selling_strength, selling_count = detect_strong_selling_candles(
+            df, max(0, current_index-5), current_index)
+        if is_strong_selling and selling_strength >= 60:
+            reversal_type = f"strong selling ({selling_count} bearish candles, strength: {selling_strength:.1f}%)"
+    else:  # Bearish OB
+        is_strong_buying, buying_strength, buying_count = detect_strong_buying_candles(
+            df, max(0, current_index-5), current_index)
+        if is_strong_buying and buying_strength >= 60:
+            reversal_type = f"strong buying ({buying_count} bullish candles, strength: {buying_strength:.1f}%)"
+
+    # Immediately reject OB if strong reversal is detected with high confidence
+    if is_reversal and reversal_confidence >= 70:
+        print(
+            f"🔴 REJECTING {ob_direction_str} OB: Strong reversal detected with {reversal_confidence:.1f}% confidence")
+        print(f"   Reversal type: {reversal_type}")
+        warnings.append(
+            f"Strong reversal detected ({reversal_confidence:.1f}% confidence)")
+        warnings.append(f"Reversal pattern: {reversal_type}")
+        return False, {
+            "setup_quality": 0,
+            "final_score": 0,
+            "threshold": 70,
+            "warnings": warnings,
+            "reversal_detected": True,
+            "reversal_confidence": reversal_confidence,
+            "reversal_type": reversal_type
+        }
+
+    # Check for strong momentum against OB direction from recent candles
+    momentum_against_ob = False
+    strong_volume_against_ob = False
+
+    # Check last 3 candles for strong counter-momentum
+    lookback = min(3, current_index)
+    strong_counter_candles = 0
+    strong_volume_candles = 0
+
+    if lookback > 0:
+        # Get recent candles
+        recent_candles = df.iloc[current_index-lookback:current_index+1]
+
+        # Count strong bearish/bullish candles against OB direction
+        for i in range(len(recent_candles)):
+            candle = recent_candles.iloc[i]
+            is_bull = candle['close'] > candle['open']
+            candle_size = abs(candle['close'] - candle['open'])
+            candle_range = candle['high'] - candle['low']
+            rel_body_size = candle_size / candle_range if candle_range > 0 else 0
+
+            # Check for candles that oppose OB direction
+            if (ob_direction == 1 and not is_bull) or (ob_direction == -1 and is_bull):
+                # If candle has large body relative to range
+                if rel_body_size > 0.6:
+                    strong_counter_candles += 1
+
+                # Check for high volume
+                if i > 0:
+                    prev_volume = recent_candles.iloc[i-1]['volume']
+                    if candle['volume'] > prev_volume * 1.5:
+                        strong_volume_candles += 1
+
+        # Detect momentum against OB
+        momentum_against_ob = strong_counter_candles >= 2
+        strong_volume_against_ob = strong_volume_candles >= 2
+
+    # Immediately reject OB if strong counter-momentum is detected
+    if momentum_against_ob and strong_volume_against_ob:
+        counter_direction = "SELLING" if ob_direction == 1 else "BUYING"
+        print(
+            f"🔴 REJECTING {ob_direction_str} OB: Strong {counter_direction} momentum detected with {strong_counter_candles} candles and high volume")
+        warning_msg = f"Strong {counter_direction} momentum with {strong_counter_candles} candles and high volume"
+        warnings.append(warning_msg)
+        return False, {
+            "setup_quality": 0,
+            "final_score": 0,
+            "threshold": 70,
+            "warnings": warnings,
+            "strong_counter_momentum": True,
+            "counter_candles": strong_counter_candles,
+            "counter_direction": counter_direction
+        }
 
     # Price Action Score (40%)
     price_action_score = 0
@@ -303,24 +677,42 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         if analysis['candle_analysis'].get('trend_change') == 'bearish_reversal':
             price_action_score = min(100, price_action_score + 20)
 
+    # Apply penalty for reversal signals
+    if is_reversal:
+        # Apply penalty proportional to reversal confidence
+        penalty_factor = reversal_confidence / 100
+        price_action_score = max(0, price_action_score - (40 * penalty_factor))
+        warnings.append(
+            f"Reversal signal present ({reversal_confidence:.1f}% confidence)")
+
     # Momentum Score (30%)
     momentum_score = 0
-    macd = df['macd'].iloc[current_index]
-    macd_signal = df['macd_signal'].iloc[current_index]
-    macd_hist = df['macd_hist'].iloc[current_index]
-    prev_hist = df['macd_hist'].iloc[current_index -
-                                     1] if current_index > 0 else 0
+    try:
+        macd = df['macd'].iloc[current_index]
+        macd_signal = df['macd_signal'].iloc[current_index]
+        macd_hist = df['macd_hist'].iloc[current_index]
+        prev_hist = df['macd_hist'].iloc[current_index -
+                                         1] if current_index > 0 else 0
 
-    if ob_direction == 1:  # Bullish
-        if macd > macd_signal:
-            momentum_score += 50
-        if macd_hist > prev_hist:
-            momentum_score += 50
-    else:  # Bearish
-        if macd < macd_signal:
-            momentum_score += 50
-        if macd_hist < prev_hist:
-            momentum_score += 50
+        if ob_direction == 1:  # Bullish
+            if macd > macd_signal:
+                momentum_score += 50
+            if macd_hist > prev_hist:
+                momentum_score += 50
+        else:  # Bearish
+            if macd < macd_signal:
+                momentum_score += 50
+            if macd_hist < prev_hist:
+                momentum_score += 50
+    except:
+        # MACD columns may not be available
+        momentum_score = 50  # Neutral score if MACD not available
+
+    # Apply penalty for reversal momentum
+    if is_reversal:
+        # Apply penalty proportional to reversal confidence
+        penalty_factor = reversal_confidence / 100
+        momentum_score = max(0, momentum_score - (50 * penalty_factor))
 
     # Volume Score (30%) - using the enhanced analysis
     volume_score = analysis['volume_analysis']['volume_score']
@@ -334,6 +726,17 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         elif "Moderate" in pressure_type:
             volume_score = min(100, volume_score + 10)
 
+    # Penalty for opposing pressure
+    elif (ob_direction == 1 and "Selling" in pressure_type) or (ob_direction == -1 and "Buying" in pressure_type):
+        if "Strong" in pressure_type:
+            volume_score = max(0, volume_score - 40)
+            momentum_score = max(0, momentum_score - 30)
+            warnings.append(f"{pressure_type} against order block direction")
+        elif "Moderate" in pressure_type:
+            volume_score = max(0, volume_score - 20)
+            momentum_score = max(0, momentum_score - 15)
+            warnings.append(f"{pressure_type} against order block direction")
+
     # Calculate final score with potentially more weights for critical factors
     final_score = (
         price_action_score * 0.4 +
@@ -341,10 +744,100 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         volume_score * 0.3
     )
 
-    # Debug info
-    if final_score >= 35:
-        print(
-            f"OB Score: {final_score:.2f} - Price: {price_action_score}, Momentum: {momentum_score}, Volume: {volume_score}")
+    # Adaptive threshold based on market conditions
+    threshold = 35
 
-    # Return both decision and score
-    return final_score >= 35, final_score
+    # Increase threshold if there are any counter signals
+    if strong_counter_candles >= 1 or is_reversal or ("Strong" in pressure_type and not ((ob_direction == 1 and "Buying" in pressure_type) or (ob_direction == -1 and "Selling" in pressure_type))):
+        # Calculate dynamic threshold based on reversal strength
+        if is_reversal:
+            # Scale from 60 to 80 based on reversal confidence
+            threshold = 60 + (reversal_confidence / 100) * 20
+        else:
+            threshold = 60  # Base higher threshold when there's any sign of counter momentum
+
+        if strong_counter_candles >= 1:
+            warnings.append(
+                f"{strong_counter_candles} counter trend candles detected")
+
+    # Map final_score to setup_quality scale (0-100)
+    # We want to keep the same scale for compatibility
+    setup_quality = final_score
+
+    # Determine setup strength based on setup_quality
+    if setup_quality >= 80:
+        setup_strength = "Strong"
+    elif setup_quality >= 65:
+        setup_strength = "Moderate"
+    elif setup_quality >= 50:
+        setup_strength = "Weak"
+    else:
+        setup_strength = "Very Weak"
+
+    # Determine entry quality
+    if setup_quality >= 80:
+        entry_quality = "Excellent"
+    elif setup_quality >= 65:
+        entry_quality = "Good"
+    elif setup_quality >= 50:
+        entry_quality = "Moderate"
+    else:
+        entry_quality = "Poor"
+
+    # Determine risk level
+    if setup_quality >= 75:
+        risk_level = "Low"
+    elif setup_quality >= 60:
+        risk_level = "Moderate"
+    else:
+        risk_level = "High"
+
+    # Debug info for accepted OBs
+    if final_score >= threshold:
+        print(f"✅ KEEPING {ob_direction_str} OB: Score: {final_score:.1f} - Price: {price_action_score:.1f}, Momentum: {momentum_score:.1f}, Volume: {volume_score:.1f}, Threshold: {threshold:.1f}")
+    else:
+        print(f"🔴 REJECTING {ob_direction_str} OB: Low score {final_score:.1f} < {threshold:.1f} - Price: {price_action_score:.1f}, Momentum: {momentum_score:.1f}, Volume: {volume_score:.1f}")
+        if is_reversal:
+            print(
+                f"   Reason: Reversal signal with {reversal_confidence:.1f}% confidence")
+            if reversal_type != "unknown":
+                print(f"   Pattern: {reversal_type}")
+        if strong_counter_candles > 0:
+            print(
+                f"   Reason: {strong_counter_candles} strong counter candles detected")
+        if "Strong" in pressure_type and ((ob_direction == 1 and "Selling" in pressure_type) or (ob_direction == -1 and "Buying" in pressure_type)):
+            print(f"   Reason: {pressure_type} against OB direction")
+
+    # Create comprehensive result dictionary
+    result = {
+        "setup_quality": setup_quality,
+        "final_score": final_score,
+        "threshold": threshold,
+        "keep_ob": final_score >= threshold,
+        "scores": {
+            "price_action": price_action_score,
+            "momentum": momentum_score,
+            "volume": volume_score
+        },
+        "strength": setup_strength,
+        "entry_quality": entry_quality,
+        "risk_level": risk_level,
+        "warnings": warnings,
+        "pressure": {
+            "type": pressure_type,
+            "score": analysis['pressure']['score']
+        },
+        "reversal": {
+            "detected": is_reversal,
+            "confidence": reversal_confidence if is_reversal else 0,
+            "type": reversal_type if is_reversal and reversal_type != "unknown" else None
+        },
+        "counter_momentum": {
+            "detected": momentum_against_ob,
+            "strong_volume": strong_volume_against_ob,
+            "counter_candles": strong_counter_candles
+        }
+    }
+
+    # Return both decision and detailed results
+    return final_score >= threshold, result

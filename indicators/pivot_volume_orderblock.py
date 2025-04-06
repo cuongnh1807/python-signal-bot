@@ -219,11 +219,15 @@ def detect_pivot_volume_order_blocks(
 
                     # Add to OB list if strong enough and passes additional filtering
                     if ob['strength'] >= strength_threshold:
-                        keep_ob, ob_score = should_keep_ob(
+                        keep_ob, result = should_keep_ob(
                             df, ob, len(df)-1, use_should_keep_ob)
                         if keep_ob:
-                            # Add score to the order block
-                            ob['score'] = ob_score
+                            # Add score and quality info to the order block
+                            ob['score'] = result["final_score"]
+                            ob['setup_quality'] = result["setup_quality"]
+                            ob['warnings'] = result["warnings"]
+                            ob['entry_quality'] = result.get(
+                                "entry_quality", "Unknown")
                             bull_obs.insert(0, ob)
                             df.at[current_time, 'bull_ob'] = bottom
 
@@ -298,11 +302,15 @@ def detect_pivot_volume_order_blocks(
 
                     # Add to OB list if strong enough and passes additional filtering
                     if ob['strength'] >= strength_threshold:
-                        keep_ob, ob_score = should_keep_ob(
+                        keep_ob, result = should_keep_ob(
                             df, ob, len(df)-1, use_should_keep_ob)
                         if keep_ob:
-                            # Add score to the order block
-                            ob['score'] = ob_score
+                            # Add score and quality info to the order block
+                            ob['score'] = result["final_score"]
+                            ob['setup_quality'] = result["setup_quality"]
+                            ob['warnings'] = result["warnings"]
+                            ob['entry_quality'] = result.get(
+                                "entry_quality", "Unknown")
                             bear_obs.insert(0, ob)
                             df.at[current_time, 'bear_ob'] = top
 

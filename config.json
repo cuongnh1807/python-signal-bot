@@ -31,7 +31,7 @@
       "max_distance_to_current_price": 1.2
     },
     {
-      "symbol": "XRPUSDT",
+      "symbol": "LINKUSDT",
       "interval": "15m",
       "max_risk_per_trade": 0.01,
       "leverage": 10,

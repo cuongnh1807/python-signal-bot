@@ -123,10 +123,10 @@ def calculate_dynamic_risk_percentage(data: pd.DataFrame,
 
     risk_factors['volume']['score'] = volume_score
 
-    if volume_score < 40:
-        warning_messages.append("📊 Low volume confidence")
-    elif volume_score > 85:
-        warning_messages.append("📈 Extremely high volume - potential climax")
+    # if volume_score < 40:
+    #     warning_messages.append("📊 Low volume confidence")
+    # elif volume_score > 85:
+    #     warning_messages.append("📈 Extremely high volume - potential climax")
 
     ob_quality = 100 - min(100, ob_height_percent * 2)
 

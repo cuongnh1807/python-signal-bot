@@ -97,8 +97,8 @@ class FuturesStrategy:
         for setup in analysis['trade_setups']:
             logger.info("setup_quality: %s, ob_volume_ratio: %s, ob_levels: %s, strength: %s, ob_direction: %s",
                         setup['setup_quality'], setup.get('ob_volume_ratio', 0), setup.get('ob_levels', {}), setup.get('strength', 0), setup.get('ob_direction', ''))
-            if setup['setup_quality'] < min_setup_quality:
-                continue
+            # if setup['setup_quality'] < min_setup_quality:
+            #     continue
 
             volume_ratio = setup.get('ob_volume_ratio', 0)
 

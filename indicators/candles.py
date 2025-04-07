@@ -569,12 +569,12 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     reversal_type = "unknown"
     if ob_direction == 1:  # Bullish OB
         is_strong_selling, selling_strength, selling_count = detect_strong_selling_candles(
-            df, max(0, current_index-5), current_index)
+            df, max(0, current_index-3), current_index)
         if is_strong_selling and selling_strength >= 60:
             reversal_type = f"strong selling ({selling_count} bearish candles, strength: {selling_strength:.1f}%)"
     else:  # Bearish OB
         is_strong_buying, buying_strength, buying_count = detect_strong_buying_candles(
-            df, max(0, current_index-5), current_index)
+            df, max(0, current_index-3), current_index)
         if is_strong_buying and buying_strength >= 60:
             reversal_type = f"strong buying ({buying_count} bullish candles, strength: {buying_strength:.1f}%)"
 

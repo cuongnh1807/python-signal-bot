@@ -8,7 +8,7 @@
       "window_size": 700,
       "min_setup_quality": 50,
       "min_volume_ratio": 1.3,
-      "max_distance_to_current_price": 1.5
+      "max_distance_to_current_price": 2
     },
     {
       "symbol": "ETHUSDT",
@@ -18,7 +18,7 @@
       "window_size": 700,
       "min_setup_quality": 50,
       "min_volume_ratio": 1.2,
-      "max_distance_to_current_price": 1.2
+      "max_distance_to_current_price": 2
     },
     {
       "symbol": "SOLUSDT",
@@ -28,7 +28,7 @@
       "window_size": 700,
       "min_setup_quality": 50,
       "min_volume_ratio": 1.2,
-      "max_distance_to_current_price": 1.2
+      "max_distance_to_current_price": 2
     },
     {
       "symbol": "LINKUSDT",
@@ -38,7 +38,7 @@
       "window_size": 400,
       "min_setup_quality": 50,
       "min_volume_ratio": 1.2,
-      "max_distance_to_current_price": 1.2
+      "max_distance_to_current_price": 2
     },
     {
       "symbol": "XRPUSDT",
@@ -48,7 +48,7 @@
       "window_size": 400,
       "min_setup_quality": 50,
       "min_volume_ratio": 1.2,
-      "max_distance_to_current_price": 1.2
+      "max_distance_to_current_price": 2
     }
   ]
 }

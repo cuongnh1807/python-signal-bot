@@ -149,7 +149,7 @@ class FuturesStrategy:
             leverage = self.default_leverage
             base_percent = 0.1  # Start with 10% of capital
             quality_bonus = (setup['setup_quality'] -
-                             65) / 100  # 65 is min quality
+                             50) / 100  # 65 is min quality
 
             volume_bonus = min(volume_ratio / 20, 0.15)
 
@@ -192,6 +192,7 @@ class FuturesStrategy:
                 'position_size': position_size,
                 'leverage': leverage,
                 'setup_quality': setup['setup_quality'],
+                'threshold_quality': setup['threshold'],
                 'setup_type': setup['setup_type'],
                 'ob_levels': {'bottom': ob_bottom, 'top': ob_top},
                 'timestamp': datetime.now(),
@@ -228,14 +229,14 @@ class FuturesStrategy:
 
         # Adjust entry aggression based on volume ratio and setup quality
         # Higher volume = more confident in the level = more aggressive entry
-        if volume_ratio >= 8 and setup_quality >= 90:
+        if volume_ratio >= 6 and setup_quality >= 85:
             aggression = 0.9  # Very aggressive for high volume & quality
-        elif volume_ratio >= 5 or setup_quality >= 80:
-            aggression = 0.7  # Aggressive for good volume or quality
-        elif volume_ratio >= 3 or setup_quality >= 70:
-            aggression = 0.5  # Moderate for decent volume or quality
+        elif volume_ratio >= 4 or setup_quality >= 75:
+            aggression = 0.75  # Aggressive for good volume or quality
+        elif volume_ratio >= 3 or setup_quality >= 65:
+            aggression = 0.6  # Moderate for decent volume or quality
         else:
-            aggression = 0.3  # Conservative for low volume and quality
+            aggression = 0.4  # Conservative for low volume and quality
 
         entries = {}
         if volatility is not None and volatility > 0:

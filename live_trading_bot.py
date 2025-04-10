@@ -149,6 +149,7 @@ class TelegramNotifier:
         position_size = order.get('position_size', 0)
         leverage = order.get('leverage', 20)
         margin = order.get('margin_amount', 0)
+        threshold_quality = order.get('threshold_quality', 0)
 
         # Calculate risk-reward for TP2
         risk = abs(entry_price - stop_loss)
@@ -162,7 +163,7 @@ class TelegramNotifier:
             f"Current Price: <b>${current_price:.2f}</b>\n"
             f"Symbol: <b>{symbol}</b>\n"
             f"Type: <b>{entry_type}</b>\n"
-            f"Setup: <b>{setup_type}</b> (Quality: {setup_quality:.1f}%)\n"
+            f"Setup: <b>{setup_type}</b> (Quality: {setup_quality:.1f}% - Threshold: {threshold_quality:.2f}%)\n"
             f"Entry: <b>${entry_price:.2f}</b>\n"
             f"Stop Loss: <b>${stop_loss:.2f}</b>\n"
             f"Risk-Reward (TP2): <b>{rr:.2f}</b>\n"

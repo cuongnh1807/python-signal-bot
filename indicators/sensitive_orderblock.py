@@ -141,6 +141,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                             # Add score and quality info to the order block
                             ob['score'] = result["final_score"]
                             ob['setup_quality'] = result["setup_quality"]
+                            ob['threshold'] = result["threshold"]
                             ob['warnings'] = result["warnings"]
                             ob['entry_quality'] = result.get(
                                 "entry_quality", "Unknown")
@@ -189,6 +190,8 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                             # Add score and quality info to the order block
                             ob['score'] = result["final_score"]
                             ob['setup_quality'] = result["setup_quality"]
+                            ob['threshold'] = result["threshold"]
+
                             ob['warnings'] = result["warnings"]
                             ob['entry_quality'] = result.get(
                                 "entry_quality", "Unknown")

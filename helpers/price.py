@@ -173,6 +173,8 @@ def merge_overlapping_order_blocks(obs, threshold):
                 # Base quality is the max of both blocks
                 base_quality = max(current.get(
                     'setup_quality', 0), next_ob.get('setup_quality', 0))
+                base_threshold = max(current.get(
+                    'threshold', 0), next_ob.get('threshold', 0))
 
                 # Add a bonus for overlapping blocks (confirms importance of zone)
                 # Bonus scales with strength and is capped at 15 points
@@ -182,6 +184,8 @@ def merge_overlapping_order_blocks(obs, threshold):
                 # Ensure we don't exceed 100
                 merged_ob['setup_quality'] = min(
                     100, base_quality + strength_bonus)
+                merged_ob['threshold'] = min(
+                    100, base_threshold + strength_bonus)
 
                 # Calculate improved entry quality
                 if current.get('entry_quality') in ['Excellent', 'Good'] or next_ob.get('entry_quality') in ['Excellent', 'Good']:

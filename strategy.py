@@ -186,6 +186,7 @@ def analyze_trading_setup(data, lookback_volume: int = 30):
         volume_score = min(100, int((volume_ratio - 1) * 50))
 
         setup_quality = ob_results[i].get('setup_quality', 0)
+        threshold = ob_results[i].get('threshold', 0)
         warnings = ob_results[i].get('warnings', [])
         entry_quality = ob_results[i].get('entry_quality', 'Unknown')
 
@@ -257,6 +258,7 @@ def analyze_trading_setup(data, lookback_volume: int = 30):
             'suggested_leverage': suggested_leverage,
             'setup_quality': setup_quality,
             'entry_quality': entry_quality,
+            'threshold': threshold,
             'warning_messages': warnings,
             'risk_rating': 'Low' if risk_percentage <= 0.5 else
             'Moderate' if risk_percentage <= 0.75 else 'High',

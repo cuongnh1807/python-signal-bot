@@ -7,9 +7,10 @@ import matplotlib.dates as mdates
 from binance.client import Client
 
 from binance_data_fetcher import BinanceDataFetcher
-from indicators.candles import analyze_candle_volume, should_keep_ob
+from indicators.candles import analyze_candle_volume
 from indicators.rsi import calculate_macd
 from helpers.price import merge_overlapping_order_blocks
+from helpers.candles import should_keep_ob
 
 
 def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_alert=False, sell_alert=False, volume_lookback=20, merge_threshold=0.7, max_blocks=20, atr_period=14, strength_threshold=70, use_should_keep_ob=True):
@@ -440,7 +441,12 @@ if __name__ == "__main__":
     bullish_obs = [ob for ob in order_blocks if ob['direction'] == 1]
     bearish_obs = [ob for ob in order_blocks if ob['direction'] == -1]
 
-    print(f"Found {len(bullish_obs)} active bullish order blocks")
-    print(f"Found {len(bearish_obs)} active bearish order blocks")
+    # print bullish and bearish start time
+    for ob in bullish_obs:
+        print(
+            f"Bullish start time: {ob['left_time']}, top: {ob['top']}, bottom: {ob['bottom']}, avg: {ob['avg']}, height: {ob['height']}, volume: {ob['volume']}, strength: {ob['strength']}")
+    for ob in bearish_obs:
+        print(
+            f"Bearish start time: {ob['left_time']}, top: {ob['top']}, bottom: {ob['bottom']}, avg: {ob['avg']}, height: {ob['height']}, volume: {ob['volume']}, strength: {ob['strength']}")
 
     plot_order_blocks(data, bullish_obs, bearish_obs)

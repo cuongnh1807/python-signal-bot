@@ -401,9 +401,9 @@ if __name__ == "__main__":
     parser.add_argument(
         '--length', type=int, default=5, help='Volume pivot length')
     parser.add_argument(
-        '--bull_ext_last', type=int, default=3, help='Number of bullish OBs to keep')
+        '--bull_ext_last', type=int, default=5, help='Number of bullish OBs to keep')
     parser.add_argument(
-        '--bear_ext_last', type=int, default=3, help='Number of bearish OBs to keep')
+        '--bear_ext_last', type=int, default=5, help='Number of bearish OBs to keep')
     parser.add_argument(
         '--mitigation_method', type=str, default='Wick', choices=['Wick', 'Close'],
         help='Method to determine when OBs are mitigated')
@@ -432,6 +432,10 @@ if __name__ == "__main__":
     bullish_obs = [ob for ob in orders if ob['direction'] == 1]
     bearish_obs = [ob for ob in orders if ob['direction'] == -1]
 
-    print(
-        f"Found {len(bullish_obs)} bullish and {len(bearish_obs)} bearish order blocks")
+    for ob in bullish_obs:
+        print(
+            f"Bullish start time: {ob['left_time']}, top: {ob['top']}, bottom: {ob['bottom']}, avg: {ob['avg']}, height: {ob['height']}, volume: {ob['volume']}, strength: {ob['strength']}")
+    for ob in bearish_obs:
+        print(
+            f"Bearish start time: {ob['left_time']}, top: {ob['top']}, bottom: {ob['bottom']}, avg: {ob['avg']}, height: {ob['height']}, volume: {ob['volume']}, strength: {ob['strength']}")
     plot_order_blocks(df, bullish_obs, bearish_obs)

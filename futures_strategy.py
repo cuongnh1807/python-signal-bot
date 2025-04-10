@@ -149,7 +149,8 @@ class FuturesStrategy:
             leverage = self.default_leverage
             base_percent = 0.1  # Start with 10% of capital
             quality_bonus = (setup['setup_quality'] -
-                             50) / 100  # 65 is min quality
+                             # 65 is min quality
+                             min(setup['threshold'], 50)) / 100
 
             volume_bonus = min(volume_ratio / 20, 0.15)
 
@@ -225,7 +226,6 @@ class FuturesStrategy:
         """
         # Calculate order block midpoint
         ob_height = ob_top - ob_bottom
-        ob_mid = ob_bottom + (ob_height / 2)
 
         # Adjust entry aggression based on volume ratio and setup quality
         # Higher volume = more confident in the level = more aggressive entry
@@ -233,7 +233,7 @@ class FuturesStrategy:
             aggression = 0.9  # Very aggressive for high volume & quality
         elif volume_ratio >= 4 or setup_quality >= 75:
             aggression = 0.75  # Aggressive for good volume or quality
-        elif volume_ratio >= 3 or setup_quality >= 65:
+        elif volume_ratio >= 2.5 or setup_quality >= 60:
             aggression = 0.6  # Moderate for decent volume or quality
         else:
             aggression = 0.4  # Conservative for low volume and quality
@@ -280,7 +280,7 @@ class FuturesStrategy:
 
         ob_height = ob_top - ob_bottom
 
-        volume_factor = min(1.5, 0.5 + (volume_ratio / 10))
+        volume_factor = min(1.2, 0.5 + (volume_ratio / 10))
         if volume_ratio >= 5:
             buffer_pct = 0.5 * volume_factor
         elif volume_ratio >= 2.3:

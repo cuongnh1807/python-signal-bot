@@ -1,6 +1,87 @@
 import pandas as pd
 from typing import Dict, Tuple
 
+# bullish pattern
+
+
+def is_hammer(candle):
+    body = abs(candle['close'] - candle['open'])
+    range_ = candle['high'] - candle['low']
+    lower_shadow = min(candle['open'], candle['close']) - candle['low']
+    upper_shadow = candle['high'] - max(candle['open'], candle['close'])
+    return (body < 0.3 * range_) and (lower_shadow > 2 * body) and (upper_shadow < 0.3 * body)
+
+
+def is_morning_star(candle1, candle2, candle3):
+    if candle1 is None or candle2 is None:
+        return False
+    body1 = abs(candle1['close'] - candle1['open'])
+    body2 = abs(candle2['close'] - candle2['open'])
+    body3 = abs(candle3['close'] - candle3['open'])
+    return (candle1['close'] < candle1['open']) and \
+           (body2 < 0.3 * (candle2['high'] - candle2['low'])) and \
+           (candle3['close'] > candle3['open']) and \
+           (candle3['close'] > candle1['open'] - body1 / 2)
+
+
+# bearish pattern
+def is_shooting_star(candle):
+    body = abs(candle['close'] - candle['open'])
+    range_ = candle['high'] - candle['low']
+    lower_shadow = min(candle['open'], candle['close']) - candle['low']
+    upper_shadow = candle['high'] - max(candle['open'], candle['close'])
+    return (body < 0.3 * range_) and (upper_shadow > 2 * body) and (lower_shadow < 0.3 * body)
+
+
+def is_evening_star(candle1, candle2, candle3):
+    if candle1 is None or candle2 is None:
+        return False
+    body1 = abs(candle1['close'] - candle1['open'])
+    body2 = abs(candle2['close'] - candle2['open'])
+    body3 = abs(candle3['close'] - candle3['open'])
+    return (candle1['close'] > candle1['open']) and \
+           (body2 < 0.3 * (candle2['high'] - candle2['low'])) and \
+           (candle3['close'] < candle3['open']) and \
+           (candle3['close'] < candle1['open'] + body1 / 2)
+
+   # Helper function to detect Pin Bar candles
+
+
+def is_pin_bar(candle):
+    """Identify Pin Bar candles (1 = Bullish, -1 = Bearish, 0 = None)"""
+    body = abs(candle['close'] - candle['open'])
+    range_ = candle['high'] - candle['low']
+    upper_shadow = candle['high'] - max(candle['open'], candle['close'])
+    lower_shadow = min(candle['open'], candle['close']) - candle['low']
+    if range_ > 0 and body < 0.1 * range_:
+        if upper_shadow > 2 * body:
+            return -1  # Bearish pin bar
+        elif lower_shadow > 2 * body:
+            return 1   # Bullish pin bar
+    return 0
+
+    # Helper function to detect Engulfing patterns
+
+
+def is_engulfing(prev, curr):
+    """Identify Engulfing patterns (1 = Bullish, -1 = Bearish, 0 = None)"""
+    if prev is None:
+        return 0
+    if (curr['close'] > curr['open'] and prev['close'] < prev['open'] and
+            curr['open'] < prev['close'] and curr['close'] > prev['open']):
+        return 1  # Bullish engulfing
+    elif (curr['close'] < curr['open'] and prev['close'] > prev['open'] and
+          curr['open'] > prev['close'] and curr['close'] < prev['open']):
+        return -1  # Bearish engulfing
+    return 0
+
+
+def is_doji(candle, body_ratio=0.1):
+    """Check if a candle is a Doji (small body relative to range)."""
+    body = abs(candle['close'] - candle['open'])
+    range_ = candle['high'] - candle['low']
+    return body < body_ratio * range_
+
 
 def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_keep_ob: bool = True, analysis: Dict = None) -> Tuple[bool, Dict]:
     """
@@ -33,60 +114,56 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     analysis = analysis or {'volume_analysis': {'volume_score': 50}, 'pressure': {
         'type': 'Neutral'}}  # Default if not provided
 
-    # Helper function to detect Pin Bar candles
-    def is_pin_bar(candle):
-        """Identify Pin Bar candles (1 = Bullish, -1 = Bearish, 0 = None)"""
-        body = abs(candle['close'] - candle['open'])
-        range_ = candle['high'] - candle['low']
-        upper_shadow = candle['high'] - max(candle['open'], candle['close'])
-        lower_shadow = min(candle['open'], candle['close']) - candle['low']
-        if range_ > 0 and body < 0.1 * range_:
-            if upper_shadow > 2 * body:
-                return -1  # Bearish pin bar
-            elif lower_shadow > 2 * body:
-                return 1   # Bullish pin bar
-        return 0
-
-    # Helper function to detect Engulfing patterns
-    def is_engulfing(prev, curr):
-        """Identify Engulfing patterns (1 = Bullish, -1 = Bearish, 0 = None)"""
-        if prev is None:
-            return 0
-        if (curr['close'] > curr['open'] and prev['close'] < prev['open'] and
-                curr['open'] < prev['close'] and curr['close'] > prev['open']):
-            return 1  # Bullish engulfing
-        elif (curr['close'] < curr['open'] and prev['close'] > prev['open'] and
-              curr['open'] > prev['close'] and curr['close'] < prev['open']):
-            return -1  # Bearish engulfing
-        return 0
-
     # Get current and previous candles
     current_candle = df.iloc[current_index]
     prev_candle = df.iloc[current_index - 1] if current_index > 0 else None
     pin_bar = is_pin_bar(current_candle)
     engulfing = is_engulfing(prev_candle, current_candle)
 
-    # Calculate reversal score based on recent candles
     reversal_score = 0
     warnings = []
     lookback = min(3, current_index)
     if lookback > 0:
         recent_candles = df.iloc[current_index - lookback:current_index + 1]
-        counter_candles = 0
-        high_volume_counter = 0
         for i in range(len(recent_candles)):
             candle = recent_candles.iloc[i]
-            is_bull = candle['close'] > candle['open']
-            if (ob_direction == 1 and not is_bull) or (ob_direction == -1 and is_bull):
-                counter_candles += 1
-                if i > 0 and candle['volume'] > recent_candles.iloc[i - 1]['volume'] * 1.5:
-                    high_volume_counter += 1
-        reversal_score += counter_candles * 15  # 15 points per counter candle
-        # 15 points per high volume counter candle
-        reversal_score += high_volume_counter * 15
-        if high_volume_counter >= 2:
-            warnings.append(
-                f"High volume counter candles: {high_volume_counter}")
+            prev_candle = recent_candles.iloc[i - 1] if i > 0 else None
+            prev_prev_candle = recent_candles.iloc[i - 2] if i > 1 else None
+
+        # Detect reversal patterns
+            doji = is_doji(candle)
+            hammer = is_hammer(candle)
+            morning_star = is_morning_star(
+                prev_prev_candle, prev_candle, candle) if prev_prev_candle and prev_candle else False
+            pin_bar = is_pin_bar(candle)
+            engulfing = is_engulfing(prev_candle, candle)
+
+            if ob_direction == 1:  # Bullish OB, look for bearish reversal patterns
+                if pin_bar == -1:
+                    # Bearish Pin Bar
+                    reversal_score += 20
+                if engulfing == -1:
+                    # Bearish Engulfing (strong signal)
+                    reversal_score += 25
+                if doji:
+                    # Doji (weaker signal)
+                    reversal_score += 10
+
+            elif ob_direction == -1:  # Bearish OB, look for bullish reversal patterns
+                if pin_bar == 1:
+                    # Bullish Pin Bar
+                    reversal_score += 20
+                if engulfing == 1:
+                    # Bullish Engulfing (strong signal)
+                    reversal_score += 25
+                if hammer:
+                    # Hammer (bullish reversal)
+                    reversal_score += 20
+                if morning_star:
+                    # Morning Star (strong bullish reversal)
+                    reversal_score += 30
+                if doji:
+                    reversal_score += 10  # Doji (weaker signal)
 
     # Add MACD-based reversal signals
     try:
@@ -95,29 +172,25 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         prev_hist = df['macd_hist'].iloc[current_index -
                                          1] if current_index > 0 else 0
         if (ob_direction == 1 and macd < macd_signal) or (ob_direction == -1 and macd > macd_signal):
-            reversal_score += 20  # MACD crossover against OB direction
+            # MACD crossover against OB direction
+            reversal_score += 20
         if (ob_direction == 1 and macd_hist < prev_hist) or (ob_direction == -1 and macd_hist > prev_hist):
-            reversal_score += 20  # MACD histogram weakening
+            # MACD histogram weakening
+            reversal_score += 20
     except KeyError:
         pass  # Skip if MACD data is unavailable
-
-    # Integrate Pin Bar and Engulfing into reversal score
-    if (ob_direction == 1 and pin_bar == -1) or (ob_direction == -1 and pin_bar == 1):
-        reversal_score += 20  # Opposite Pin Bar detected
-    if (ob_direction == 1 and engulfing == -1) or (ob_direction == -1 and engulfing == 1):
-        reversal_score += 25  # Opposite Engulfing detected
 
     reversal_score = min(reversal_score, 100)  # Cap reversal score at 100
 
     # Early rejection if reversal score is very high
-    if reversal_score >= 80:
+    if reversal_score >= 75:
         print(
             f"🔴 REJECTING {ob_direction_str} OB: Strong reversal (score: {reversal_score})")
         warnings.append(f"Strong reversal (score: {reversal_score})")
         return False, {
             "setup_quality": 0,
             "final_score": 0,
-            "threshold": 80,
+            "threshold": 75,
             "warnings": warnings,
             "reversal_score": reversal_score
         }
@@ -174,7 +247,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
             volume_score = max(0, volume_score - 20)
 
     # Compute Final Score with Weights
-    weights = {'price_action': 0.4, 'momentum': 0.3, 'volume': 0.3}
+    weights = {'price_action': 0.4, 'momentum': 0.35, 'volume': 0.25}
     final_score = (
         price_action_score * weights['price_action'] +
         momentum_score * weights['momentum'] +
@@ -183,7 +256,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
 
     # Set Adaptive Threshold
     base_threshold = 40
-    threshold = min(80, base_threshold + (reversal_score / 100) * 40)
+    threshold = min(75, base_threshold + (reversal_score / 100) * 40)
 
     # Determine if OB should be kept
     setup_quality = final_score

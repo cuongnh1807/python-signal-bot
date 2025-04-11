@@ -134,7 +134,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
             doji = is_doji(candle)
             hammer = is_hammer(candle)
             morning_star = is_morning_star(
-                prev_prev_candle, prev_candle, candle) if prev_prev_candle and prev_candle else False
+                prev_prev_candle, prev_candle, candle) if (prev_prev_candle is not None and prev_candle is not None) else False
             pin_bar = is_pin_bar(candle)
             engulfing = is_engulfing(prev_candle, candle)
 
@@ -183,14 +183,14 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     reversal_score = min(reversal_score, 100)  # Cap reversal score at 100
 
     # Early rejection if reversal score is very high
-    if reversal_score >= 75:
+    if reversal_score >= 70:
         print(
             f"🔴 REJECTING {ob_direction_str} OB: Strong reversal (score: {reversal_score})")
         warnings.append(f"Strong reversal (score: {reversal_score})")
         return False, {
             "setup_quality": 0,
             "final_score": 0,
-            "threshold": 75,
+            "threshold": 70,
             "warnings": warnings,
             "reversal_score": reversal_score
         }
@@ -247,16 +247,17 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
             volume_score = max(0, volume_score - 20)
 
     # Compute Final Score with Weights
-    weights = {'price_action': 0.4, 'momentum': 0.35, 'volume': 0.25}
+    weights = {'price_action': 0.4, 'momentum': 0.3, 'volume': 0.3}
+    # print()
     final_score = (
         price_action_score * weights['price_action'] +
         momentum_score * weights['momentum'] +
-        volume_score * weights['volume']
+        ob['strength'] * weights['volume']
     )
 
     # Set Adaptive Threshold
-    base_threshold = 40
-    threshold = min(75, base_threshold + (reversal_score / 100) * 40)
+    base_threshold = 35
+    threshold = min(70, base_threshold + reversal_score * 0.4)
 
     # Determine if OB should be kept
     setup_quality = final_score

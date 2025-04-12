@@ -5,7 +5,8 @@ import logging
 import concurrent.futures
 import threading
 from typing import Dict, List
-from live_trading_bot import LiveTradingBot, TelegramNotifier
+# from live_trading_bot import LiveTradingBot, TelegramNotifier
+from macd_strategies.live_trading_bot import MacdTradingBot, TelegramNotifier
 from binance.client import Client
 # from telegram_notifier import TelegramNotifier
 
@@ -97,7 +98,7 @@ class MultiTickerManager:
                     return None, None
 
             # Create new bot
-            bot = LiveTradingBot(
+            bot = MacdTradingBot(
                 client=self.client,
                 symbol=symbol,
                 symbol_precision=self.symbol_precision[symbol],
@@ -181,7 +182,7 @@ class MultiTickerManager:
                     logger.error(f"Cannot find configuration for {symbol}")
                     return
 
-                bot = LiveTradingBot(
+                bot = MacdTradingBot(
                     client=self.client,
                     symbol=symbol,
                     symbol_precision=self.symbol_precision[symbol],

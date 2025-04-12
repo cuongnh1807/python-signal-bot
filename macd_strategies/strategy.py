@@ -59,12 +59,18 @@ class MacdRsiStrategy:
 
     def analyze_market(self, data: pd.DataFrame) -> Dict:
         """
-        Analyze market and create trading signals
+        Analyze market and create trading signals with comprehensive analysis
         """
         analysis = {}
 
         # Calculate indicators
         df = self._calculate_indicators(data)
+
+        # Analyze market structure and trend
+        market_structure = self._analyze_market_structure(df)
+
+        # Analyze support and resistance levels
+        sr_levels = self._analyze_support_resistance(df)
 
         # Analyze candle patterns
         candle_patterns = self._analyze_candle_patterns(df)
@@ -75,41 +81,59 @@ class MacdRsiStrategy:
         # Analyze RSI
         rsi_signals = self._analyze_rsi(df)
 
+        # Check for RSI divergences
+        divergence = self._analyze_divergence(df)
+
         # Analyze volume
         volume_signals = self._analyze_volume(df)
 
         # Analyze EMA
         ema_signals = self._analyze_ema(df)
 
+        # Analyze market volatility
+        volatility = self._analyze_volatility(df)
+
+        # Analyze market momentum
+        momentum = self._analyze_momentum(df)
+
         # Combine signals
         signals = self._combine_signals(
             df,
+            market_structure,
+            sr_levels,
             candle_patterns,
             macd_signals,
             rsi_signals,
+            divergence,
             volume_signals,
-            ema_signals
+            ema_signals,
+            volatility,
+            momentum
         )
 
-        print("signals", signals)
-
         analysis['signals'] = signals
+        analysis['market_structure'] = market_structure
+        analysis['sr_levels'] = sr_levels
         analysis['indicators'] = {
             'macd': macd_signals,
             'rsi': rsi_signals,
+            'divergence': divergence,
             'volume': volume_signals,
             'patterns': candle_patterns,
-            'ema': ema_signals
+            'ema': ema_signals,
+            'volatility': volatility,
+            'momentum': momentum
         }
         analysis['current_price'] = df['close'].iloc[-1]
 
         return analysis
 
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate technical indicators"""
+        """Calculate comprehensive technical indicators"""
         df = df.copy()
 
-        # Calculate RSI
+        # Original indicators
+        # RSI calculation
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(
             window=self.rsi_period).mean()
@@ -118,7 +142,7 @@ class MacdRsiStrategy:
         rs = gain / loss
         df['rsi'] = 100 - (100 / (1 + rs))
 
-        # Calculate MACD
+        # MACD calculation
         ema_fast = df['close'].ewm(span=self.macd_fast, adjust=False).mean()
         ema_slow = df['close'].ewm(span=self.macd_slow, adjust=False).mean()
         df['macd'] = ema_fast - ema_slow
@@ -126,105 +150,475 @@ class MacdRsiStrategy:
             span=self.macd_signal, adjust=False).mean()
         df['macd_hist'] = df['macd'] - df['macd_signal']
 
-        # Calculate EMA34 and EMA89
+        # EMA calculations - more comprehensive EMAs
+        df['ema8'] = df['close'].ewm(span=8, adjust=False).mean()
+        df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
         df['ema34'] = df['close'].ewm(span=self.ema_short, adjust=False).mean()
         df['ema89'] = df['close'].ewm(span=self.ema_long, adjust=False).mean()
+        df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
 
-        # Calculate volume MA
+        # Volume indicators
         df['volume_ma'] = df['volume'].rolling(
             window=self.volume_ma_period).mean()
         df['volume_ratio'] = df['volume'] / df['volume_ma']
 
-        # Calculate Bollinger Bands
+        # On-Balance Volume (OBV) for volume confirmation
+        obv = 0
+        df['obv'] = 0
+        for i in range(1, len(df)):
+            if df['close'].iloc[i] > df['close'].iloc[i-1]:
+                obv += df['volume'].iloc[i]
+            elif df['close'].iloc[i] < df['close'].iloc[i-1]:
+                obv -= df['volume'].iloc[i]
+            df['obv'].iloc[i] = obv
+
+        # Bollinger Bands
         df['bb_middle'] = df['close'].rolling(window=20).mean()
         bb_std = df['close'].rolling(window=20).std()
         df['bb_upper'] = df['bb_middle'] + (bb_std * 2)
         df['bb_lower'] = df['bb_middle'] - (bb_std * 2)
+        df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
+
+        # Average True Range (ATR) for volatility
+        high_low = df['high'] - df['low']
+        high_close = abs(df['high'] - df['close'].shift())
+        low_close = abs(df['low'] - df['close'].shift())
+        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+        true_range = ranges.max(axis=1)
+        df['atr'] = true_range.rolling(window=14).mean()
+
+        # Stochastic Oscillator for momentum
+        lowest_low = df['low'].rolling(window=14).min()
+        highest_high = df['high'].rolling(window=14).max()
+        df['stoch_k'] = 100 * \
+            ((df['close'] - lowest_low) / (highest_high - lowest_low))
+        df['stoch_d'] = df['stoch_k'].rolling(window=3).mean()
+
+        # Rate of Change (ROC) for momentum
+        df['roc'] = df['close'].pct_change(periods=10) * 100
+
+        # Directional Movement Index (DMI) components for trend strength
+        plus_dm = df['high'].diff()
+        minus_dm = df['low'].diff(-1).abs()
+        plus_dm[plus_dm < 0] = 0
+        minus_dm[minus_dm < 0] = 0
+        tr = true_range  # We already calculated true range above
+
+        plus_di = 100 * (plus_dm.rolling(window=14).sum() /
+                         tr.rolling(window=14).sum())
+        minus_di = 100 * (minus_dm.rolling(window=14).sum() /
+                          tr.rolling(window=14).sum())
+        df['plus_di'] = plus_di
+        df['minus_di'] = minus_di
+        df['adx'] = (abs(plus_di - minus_di) / (plus_di + minus_di)
+                     * 100).rolling(window=14).mean()
 
         return df
 
-    def _analyze_ema(self, df: pd.DataFrame) -> Dict:
-        """Analyze EMA signals"""
-        # Get current values
-        current_close = df['close'].iloc[-1]
-        ema_short = df['ema34'].iloc[-1]
-        ema_long = df['ema89'].iloc[-1]
+    def _analyze_market_structure(self, df: pd.DataFrame) -> Dict:
+        """Analyze overall market structure and trend"""
+        # Get current price and EMAs
+        current_price = df['close'].iloc[-1]
+        ema8 = df['ema8'].iloc[-1]
+        ema21 = df['ema21'].iloc[-1]
+        ema34 = df['ema34'].iloc[-1]
+        ema89 = df['ema89'].iloc[-1]
+        ema200 = df['ema200'].iloc[-1]
 
-        # Get previous values for slope direction
-        prev_ema_short = df['ema34'].iloc[-2] if len(df) > 2 else ema_short
-        prev_ema_long = df['ema89'].iloc[-2] if len(df) > 2 else ema_long
+        # ADX for trend strength
+        adx = df['adx'].iloc[-1]
 
-        # Check for EMA crossover
-        is_golden_cross = ema_short > ema_long and df['ema34'].iloc[-2] <= df['ema89'].iloc[-2]
-        is_death_cross = ema_short < ema_long and df['ema34'].iloc[-2] >= df['ema89'].iloc[-2]
+        # Determine short-term trend
+        short_term_trend = "BULLISH" if ema8 > ema21 else "BEARISH"
 
-        # Calculate how recently the crossover happened (look back up to 5 candles)
-        cross_candles_ago = 0
-        if not is_golden_cross and not is_death_cross:
-            for i in range(2, min(7, len(df))):
-                if (df['ema34'].iloc[-i] > df['ema89'].iloc[-i] and df['ema34'].iloc[-i-1] <= df['ema89'].iloc[-i-1]) or \
-                   (df['ema34'].iloc[-i] < df['ema89'].iloc[-i] and df['ema34'].iloc[-i-1] >= df['ema89'].iloc[-i-1]):
-                    cross_candles_ago = i
-                    break
+        # Determine medium-term trend
+        medium_term_trend = "BULLISH" if ema34 > ema89 else "BEARISH"
 
-        # Determine trend direction
-        trend = "BULLISH" if ema_short > ema_long else "BEARISH" if ema_short < ema_long else "NEUTRAL"
+        # Determine long-term trend
+        long_term_trend = "BULLISH" if current_price > ema200 else "BEARISH"
 
-        # Calculate price position relative to EMAs
-        price_above_short = current_close > ema_short
-        price_above_long = current_close > ema_long
-        price_between_emas = (current_close > ema_short and current_close < ema_long) or \
-            (current_close < ema_short and current_close > ema_long)
+        # Check if all trends align for stronger signal
+        trends_aligned = (short_term_trend ==
+                          medium_term_trend == long_term_trend)
 
-        # Check for bullish/bearish alignment
-        bullish_alignment = price_above_short and price_above_long and ema_short > ema_long and ema_short > prev_ema_short
-        bearish_alignment = current_close < ema_short and current_close < ema_long and ema_short < ema_long and ema_short < prev_ema_short
+        # Check market trend strength
+        trend_strength = "STRONG" if adx > 25 else "WEAK" if adx > 20 else "RANGING"
 
-        # Check for pullback to EMA (potential entry points)
-        pullback_to_ema34 = (trend == "BULLISH" and abs(
-            current_close - ema_short) / ema_short < 0.005)
-        pullback_to_ema89 = (trend == "BULLISH" and abs(
-            current_close - ema_long) / ema_long < 0.005)
+        # Check for trend changes
+        trend_change = False
+        if len(df) >= 5:
+            prev_short_term = "BULLISH" if df['ema8'].iloc[-5] > df['ema21'].iloc[-5] else "BEARISH"
+            if prev_short_term != short_term_trend:
+                trend_change = True
 
-        # Calculate signal strength (0-10)
-        strength = 0
+        # Higher timeframe context
+        above_key_emas = (current_price > ema34 and current_price > ema89)
+        below_key_emas = (current_price < ema34 and current_price < ema89)
 
-        if is_golden_cross:
-            strength += 10  # Fresh bullish crossover is very strong
-        elif is_death_cross:
-            strength += 8   # Fresh bearish crossover
-        elif cross_candles_ago > 0 and cross_candles_ago <= 3:
-            # Recent crossover (within 3 candles)
-            strength += (5 - cross_candles_ago)
-
-        if bullish_alignment:
-            strength += 5
-        elif bearish_alignment:
-            strength += 5
-
-        if pullback_to_ema34 or pullback_to_ema89:
-            strength += 3  # Potential entry point
-
-        signals = {
-            'trend': trend,
-            'ema_short': ema_short,
-            'ema_long': ema_long,
-            'ema_short_slope': "UP" if ema_short > prev_ema_short else "DOWN" if ema_short < prev_ema_short else "FLAT",
-            'ema_long_slope': "UP" if ema_long > prev_ema_long else "DOWN" if ema_long < prev_ema_long else "FLAT",
-            'price_above_short': price_above_short,
-            'price_above_long': price_above_long,
-            'price_between_emas': price_between_emas,
-            'is_golden_cross': is_golden_cross,
-            'is_death_cross': is_death_cross,
-            'cross_candles_ago': cross_candles_ago,
-            'bullish_alignment': bullish_alignment,
-            'bearish_alignment': bearish_alignment,
-            'pullback_to_ema34': pullback_to_ema34,
-            'pullback_to_ema89': pullback_to_ema89,
-            'buy_signal': is_golden_cross or (trend == "BULLISH" and (pullback_to_ema34 or pullback_to_ema89)),
-            'sell_signal': is_death_cross or (trend == "BEARISH" and price_above_short),
-            'strength': min(strength, 10)  # Cap at 10
+        return {
+            'short_term_trend': short_term_trend,
+            'medium_term_trend': medium_term_trend,
+            'long_term_trend': long_term_trend,
+            'trend_strength': trend_strength,
+            'trends_aligned': trends_aligned,
+            'trend_change': trend_change,
+            'above_key_emas': above_key_emas,
+            'below_key_emas': below_key_emas,
+            'adx': adx
         }
+
+    def _analyze_support_resistance(self, df: pd.DataFrame) -> Dict:
+        """Identify key support and resistance levels"""
+        highs = df['high'].values
+        lows = df['low'].values
+        close = df['close'].values
+
+        # Current price
+        current_price = close[-1]
+
+        # Identify swing highs and lows
+        swing_highs = []
+        swing_lows = []
+
+        # Simple method to identify swings (more sophisticated methods can be used)
+        window = 5
+        for i in range(window, len(df) - window):
+            # Check for swing high
+            if highs[i] == max(highs[i-window:i+window+1]):
+                swing_highs.append((i, highs[i]))
+
+            # Check for swing low
+            if lows[i] == min(lows[i-window:i+window+1]):
+                swing_lows.append((i, lows[i]))
+
+        # Filter recent swing points (last 30 candles)
+        recent_swing_highs = [price for idx,
+                              price in swing_highs if len(df) - idx <= 30]
+        recent_swing_lows = [price for idx,
+                             price in swing_lows if len(df) - idx <= 30]
+
+        # Find closest support and resistance
+        closest_resistance = min(
+            [price for price in recent_swing_highs if price > current_price], default=None)
+        closest_support = max(
+            [price for price in recent_swing_lows if price < current_price], default=None)
+
+        # Check if price is near support or resistance (within 1% range)
+        near_support = closest_support and (
+            current_price - closest_support) / closest_support < 0.01
+        near_resistance = closest_resistance and (
+            closest_resistance - current_price) / current_price < 0.01
+
+        # Calculate distance to support/resistance as percentage
+        distance_to_support = ((current_price - closest_support) /
+                               current_price * 100) if closest_support else None
+        distance_to_resistance = (
+            (closest_resistance - current_price) / current_price * 100) if closest_resistance else None
+
+        return {
+            'closest_resistance': closest_resistance,
+            'closest_support': closest_support,
+            'near_support': near_support,
+            'near_resistance': near_resistance,
+            'distance_to_support': distance_to_support,
+            'distance_to_resistance': distance_to_resistance
+        }
+
+    def _analyze_divergence(self, df: pd.DataFrame) -> Dict:
+        """Detect divergences between price and oscillators (RSI, MACD)"""
+        # Get price and oscillator data for the last 20 candles
+        window = min(20, len(df)-1)
+
+        prices = df['close'].iloc[-window:].values
+        rsi_values = df['rsi'].iloc[-window:].values
+        macd_hist = df['macd_hist'].iloc[-window:].values
+
+        # Initialize divergence flags
+        bullish_rsi_div = False
+        bearish_rsi_div = False
+        bullish_macd_div = False
+        bearish_macd_div = False
+
+        # Simple divergence detection (can be improved with more sophisticated methods)
+        # Bullish divergence: Lower lows in price but higher lows in oscillator
+        # Bearish divergence: Higher highs in price but lower highs in oscillator
+
+        # Find local min/max in price and oscillators
+        for i in range(2, window-2):
+            # Check for price local minimum
+            if prices[i] < prices[i-1] and prices[i] < prices[i-2] and prices[i] < prices[i+1] and prices[i] < prices[i+2]:
+                # RSI bullish divergence
+                if rsi_values[i] > rsi_values[i-2] and prices[i] < prices[i-2]:
+                    bullish_rsi_div = True
+                # MACD bullish divergence
+                if macd_hist[i] > macd_hist[i-2] and prices[i] < prices[i-2]:
+                    bullish_macd_div = True
+
+            # Check for price local maximum
+            if prices[i] > prices[i-1] and prices[i] > prices[i-2] and prices[i] > prices[i+1] and prices[i] > prices[i+2]:
+                # RSI bearish divergence
+                if rsi_values[i] < rsi_values[i-2] and prices[i] > prices[i-2]:
+                    bearish_rsi_div = True
+                # MACD bearish divergence
+                if macd_hist[i] < macd_hist[i-2] and prices[i] > prices[i-2]:
+                    bearish_macd_div = True
+
+        return {
+            'bullish_rsi_divergence': bullish_rsi_div,
+            'bearish_rsi_divergence': bearish_rsi_div,
+            'bullish_macd_divergence': bullish_macd_div,
+            'bearish_macd_divergence': bearish_macd_div
+        }
+
+    def _analyze_volatility(self, df: pd.DataFrame) -> Dict:
+        """Analyze market volatility"""
+        # Get ATR and BB width for volatility measurement
+        current_atr = df['atr'].iloc[-1]
+        avg_atr = df['atr'].iloc[-20:].mean()
+        bb_width = df['bb_width'].iloc[-1]
+        avg_bb_width = df['bb_width'].iloc[-20:].mean()
+
+        # Determine if volatility is high, low, or expanding/contracting
+        high_volatility = current_atr > avg_atr * 1.5
+        low_volatility = current_atr < avg_atr * 0.7
+        expanding_volatility = df['bb_width'].iloc[-1] > df['bb_width'].iloc[-2] > df['bb_width'].iloc[-3]
+        contracting_volatility = df['bb_width'].iloc[-1] < df['bb_width'].iloc[-2] < df['bb_width'].iloc[-3]
+
+        # Check for volatility squeeze (potential breakout setup)
+        volatility_squeeze = contracting_volatility and df[
+            'bb_width'].iloc[-1] < df['bb_width'].iloc[-20:].min() * 1.2
+
+        # Calculate percent change over recent periods
+        daily_change = abs(df['close'].iloc[-1] /
+                           df['close'].iloc[-2] - 1) * 100
+        weekly_change = abs(df['close'].iloc[-1] / df['close'].iloc[-5] -
+                            1) * 100 if len(df) >= 5 else daily_change
+
+        return {
+            'atr': current_atr,
+            'bb_width': bb_width,
+            'high_volatility': high_volatility,
+            'low_volatility': low_volatility,
+            'expanding_volatility': expanding_volatility,
+            'contracting_volatility': contracting_volatility,
+            'volatility_squeeze': volatility_squeeze,
+            'daily_change': daily_change,
+            'weekly_change': weekly_change
+        }
+
+    def _analyze_momentum(self, df: pd.DataFrame) -> Dict:
+        """Analyze market momentum"""
+        # Get momentum indicators
+        current_roc = df['roc'].iloc[-1]
+        current_stoch_k = df['stoch_k'].iloc[-1]
+        current_stoch_d = df['stoch_d'].iloc[-1]
+
+        # Determine momentum direction and strength
+        strong_bullish = current_roc > 5 and current_stoch_k > 80 and current_stoch_k > current_stoch_d
+        strong_bearish = current_roc < - \
+            5 and current_stoch_k < 20 and current_stoch_k < current_stoch_d
+
+        # Check momentum alignment with price
+        price_momentum_aligned = (df['close'].iloc[-1] > df['close'].iloc[-2] and current_roc > 0) or \
+                                 (df['close'].iloc[-1] <
+                                  df['close'].iloc[-2] and current_roc < 0)
+
+        # Check for overbought/oversold conditions
+        overbought = current_stoch_k > 80 and df['rsi'].iloc[-1] > 70
+        oversold = current_stoch_k < 20 and df['rsi'].iloc[-1] < 30
+
+        return {
+            'roc': current_roc,
+            'stoch_k': current_stoch_k,
+            'stoch_d': current_stoch_d,
+            'strong_bullish': strong_bullish,
+            'strong_bearish': strong_bearish,
+            'price_momentum_aligned': price_momentum_aligned,
+            'overbought': overbought,
+            'oversold': oversold
+        }
+
+    def _combine_signals(self, df: pd.DataFrame, market_structure: Dict, sr_levels: Dict,
+                         candle_patterns: Dict, macd_signals: Dict, rsi_signals: Dict,
+                         divergence: Dict, volume_signals: Dict, ema_signals: Dict,
+                         volatility: Dict, momentum: Dict) -> List[Dict]:
+        """Combine all signals with improved weighting and strategy context"""
+        signals = []
+        current_price = df['close'].iloc[-1]
+
+        # ADVANCED BUY SIGNAL EVALUATION
+        buy_score = 0
+        buy_reasons = []
+
+        # 1. Check trend alignment - most important factor (30%)
+        if market_structure['short_term_trend'] == 'BULLISH':
+            buy_score += 1.5
+            buy_reasons.append("Short-term trend bullish")
+
+        if market_structure['medium_term_trend'] == 'BULLISH':
+            buy_score += 1.5
+            buy_reasons.append("Medium-term trend bullish")
+
+        if market_structure['trends_aligned'] and market_structure['short_term_trend'] == 'BULLISH':
+            buy_score += 2.0
+            buy_reasons.append("All timeframes aligned bullish")
+
+        # 2. Check EMA signals (20%)
+        if ema_signals['buy_signal']:
+            buy_score += ema_signals['strength'] * 0.2
+            if ema_signals['is_golden_cross']:
+                buy_reasons.append("Golden Cross (EMA34 above EMA89)")
+                buy_score += 1.0
+            if ema_signals['pullback_to_ema34'] or ema_signals['pullback_to_ema89']:
+                buy_reasons.append("Price pullback to EMA support")
+                buy_score += 1.0
+
+        # 3. Check indicators: MACD, RSI, etc. (15%)
+        if macd_signals['buy_signal']:
+            buy_score += macd_signals['strength'] * 0.15
+            buy_reasons.append(
+                f"MACD bullish (strength: {macd_signals['strength']:.1f})")
+
+        if rsi_signals['oversold']:
+            buy_score += rsi_signals['strength'] * 0.15
+            buy_reasons.append(f"RSI oversold at {rsi_signals['current']:.1f}")
+
+        # 4. Check divergences (high weight due to reliability) (10%)
+        if divergence['bullish_rsi_divergence'] or divergence['bullish_macd_divergence']:
+            buy_score += 1.0
+            buy_reasons.append("Bullish divergence detected")
+
+        # 5. Check candle patterns (10%)
+        if candle_patterns['bullish']:
+            buy_score += candle_patterns['strength'] * 0.1
+            buy_reasons.append(
+                f"Bullish {candle_patterns['pattern_name']} pattern")
+
+        # 6. Check support/resistance (10%)
+        if sr_levels['near_support']:
+            buy_score += 1.0
+            buy_reasons.append(
+                f"Price near support level {sr_levels['closest_support']:.2f}")
+
+        # 7. Check volume (5%)
+        if volume_signals['bullish_volume']:
+            buy_score += volume_signals['strength'] * 0.05
+            buy_reasons.append(
+                f"Strong volume ({volume_signals['volume_ratio']:.1f}x avg)")
+
+        # 8. Check volatility and momentum together
+        if volatility['volatility_squeeze'] and momentum['roc'] > 0:
+            buy_score += 0.5
+            buy_reasons.append("Volatility squeeze with positive momentum")
+
+        if momentum['oversold'] and market_structure['medium_term_trend'] == 'BULLISH':
+            buy_score += 1.0
+            buy_reasons.append("Oversold in bullish trend")
+
+        # ADVANCED SELL SIGNAL EVALUATION - follows similar pattern as buy
+        sell_score = 0
+        sell_reasons = []
+
+        # 1. Check trend alignment (30%)
+        if market_structure['short_term_trend'] == 'BEARISH':
+            sell_score += 1.5
+            sell_reasons.append("Short-term trend bearish")
+
+        if market_structure['medium_term_trend'] == 'BEARISH':
+            sell_score += 1.5
+            sell_reasons.append("Medium-term trend bearish")
+
+        if market_structure['trends_aligned'] and market_structure['short_term_trend'] == 'BEARISH':
+            sell_score += 2.0
+            sell_reasons.append("All timeframes aligned bearish")
+
+        # 2. Check EMA signals (20%)
+        if ema_signals['sell_signal']:
+            sell_score += ema_signals['strength'] * 0.2
+            if ema_signals['is_death_cross']:
+                sell_reasons.append("Death Cross (EMA34 below EMA89)")
+                sell_score += 1.0
+
+        # 3. Check indicators: MACD, RSI, etc. (15%)
+        if macd_signals['sell_signal']:
+            sell_score += macd_signals['strength'] * 0.15
+            sell_reasons.append(
+                f"MACD bearish (strength: {macd_signals['strength']:.1f})")
+
+        if rsi_signals['overbought']:
+            sell_score += rsi_signals['strength'] * 0.15
+            sell_reasons.append(
+                f"RSI overbought at {rsi_signals['current']:.1f}")
+
+        # 4. Check divergences (10%)
+        if divergence['bearish_rsi_divergence'] or divergence['bearish_macd_divergence']:
+            sell_score += 1.0
+            sell_reasons.append("Bearish divergence detected")
+
+        # 5. Check candle patterns (10%)
+        if candle_patterns['bearish']:
+            sell_score += candle_patterns['strength'] * 0.1
+            sell_reasons.append(
+                f"Bearish {candle_patterns['pattern_name']} pattern")
+
+        # 6. Check support/resistance (10%)
+        if sr_levels['near_resistance']:
+            sell_score += 1.0
+            sell_reasons.append(
+                f"Price near resistance level {sr_levels['closest_resistance']:.2f}")
+
+        # 7. Check volume (5%)
+        if volume_signals['bearish_volume']:
+            sell_score += volume_signals['strength'] * 0.05
+            sell_reasons.append(
+                f"Strong volume ({volume_signals['volume_ratio']:.1f}x avg)")
+
+        # 8. Check volatility and momentum together
+        if volatility['volatility_squeeze'] and momentum['roc'] < 0:
+            sell_score += 0.5
+            sell_reasons.append("Volatility squeeze with negative momentum")
+
+        if momentum['overbought'] and market_structure['medium_term_trend'] == 'BEARISH':
+            sell_score += 1.0
+            sell_reasons.append("Overbought in bearish trend")
+
+        # Threshold for generating signals
+        threshold = 7.0  # Higher threshold for more stringent requirements
+
+        # Create signals if score exceeds threshold
+        if buy_score > threshold:
+            signal = {
+                'signal_type': 'BUY',
+                'price': current_price,
+                'strength': min(buy_score, 10),  # Cap at 10
+                'macd': macd_signals,
+                'rsi': rsi_signals['current'],
+                'volume_ratio': volume_signals['volume_ratio'],
+                'pattern': candle_patterns.get('pattern_name'),
+                'ema': ema_signals['trend'] if ema_signals else None,
+                'market_structure': market_structure['short_term_trend'],
+                'support': sr_levels.get('closest_support'),
+                'resistance': sr_levels.get('closest_resistance'),
+                'reason': " | ".join(buy_reasons)
+            }
+            signals.append(signal)
+
+        if sell_score > threshold:
+            signal = {
+                'signal_type': 'SELL',
+                'price': current_price,
+                'strength': min(sell_score, 10),  # Cap at 10
+                'macd': macd_signals,
+                'rsi': rsi_signals['current'],
+                'volume_ratio': volume_signals['volume_ratio'],
+                'pattern': candle_patterns.get('pattern_name'),
+                'ema': ema_signals['trend'] if ema_signals else None,
+                'market_structure': market_structure['short_term_trend'],
+                'support': sr_levels.get('closest_support'),
+                'resistance': sr_levels.get('closest_resistance'),
+                'reason': " | ".join(sell_reasons)
+            }
+            signals.append(signal)
 
         return signals
 
@@ -346,145 +740,90 @@ class MacdRsiStrategy:
 
         return signals
 
-    def _combine_signals(self, df: pd.DataFrame, candle_patterns: Dict,
-                         macd_signals: Dict, rsi_signals: Dict,
-                         volume_signals: Dict, ema_signals: Dict = None) -> List[Dict]:
-        """Combine signals to make trading decisions"""
-        signals = []
-        current_price = df['close'].iloc[-1]
+    def _analyze_ema(self, df: pd.DataFrame) -> Dict:
+        """Analyze EMA signals"""
+        # Get current values
+        current_close = df['close'].iloc[-1]
+        ema_short = df['ema34'].iloc[-1]
+        ema_long = df['ema89'].iloc[-1]
 
-        # Calculate buy signal score
-        buy_score = 0
-        if macd_signals['buy_signal']:
-            buy_score += macd_signals['strength'] * 0.25
-        if rsi_signals['oversold']:
-            buy_score += rsi_signals['strength'] * 0.2
-        if candle_patterns['bullish']:
-            buy_score += candle_patterns['strength'] * 0.15
-        if volume_signals['bullish_volume']:
-            buy_score += volume_signals['strength'] * 0.15
+        # Get previous values for slope direction
+        prev_ema_short = df['ema34'].iloc[-2] if len(df) > 2 else ema_short
+        prev_ema_long = df['ema89'].iloc[-2] if len(df) > 2 else ema_long
 
-        # Add EMA signals to the score calculation
-        if ema_signals:
-            if ema_signals['buy_signal']:
-                buy_score += ema_signals['strength'] * 0.25
-            # Boost score if price is in ideal buy zone (pullback to EMA in bullish trend)
-            if ema_signals['trend'] == 'BULLISH' and (ema_signals['pullback_to_ema34'] or ema_signals['pullback_to_ema89']):
-                buy_score += 2.0
+        # Check for EMA crossover
+        is_golden_cross = ema_short > ema_long and df['ema34'].iloc[-2] <= df['ema89'].iloc[-2]
+        is_death_cross = ema_short < ema_long and df['ema34'].iloc[-2] >= df['ema89'].iloc[-2]
 
-        # Calculate sell signal score
-        sell_score = 0
-        if macd_signals['sell_signal']:
-            sell_score += macd_signals['strength'] * 0.25
-        if rsi_signals['overbought']:
-            sell_score += rsi_signals['strength'] * 0.2
-        if candle_patterns['bearish']:
-            sell_score += candle_patterns['strength'] * 0.15
-        if volume_signals['bearish_volume']:
-            sell_score += volume_signals['strength'] * 0.15
+        # Calculate how recently the crossover happened (look back up to 5 candles)
+        cross_candles_ago = 0
+        if not is_golden_cross and not is_death_cross:
+            for i in range(2, min(7, len(df))):
+                if (df['ema34'].iloc[-i] > df['ema89'].iloc[-i] and df['ema34'].iloc[-i-1] <= df['ema89'].iloc[-i-1]) or \
+                   (df['ema34'].iloc[-i] < df['ema89'].iloc[-i] and df['ema34'].iloc[-i-1] >= df['ema89'].iloc[-i-1]):
+                    cross_candles_ago = i
+                    break
 
-        # Add EMA signals to the sell score
-        if ema_signals:
-            if ema_signals['sell_signal']:
-                sell_score += ema_signals['strength'] * 0.25
-            # Boost sell score in strong bearish alignment
-            if ema_signals['bearish_alignment']:
-                sell_score += 2.0
+        # Determine trend direction
+        trend = "BULLISH" if ema_short > ema_long else "BEARISH" if ema_short < ema_long else "NEUTRAL"
 
-        # Create signal if threshold is met
-        threshold = 6.0  # Minimum score threshold
+        # Calculate price position relative to EMAs
+        price_above_short = current_close > ema_short
+        price_above_long = current_close > ema_long
+        price_between_emas = (current_close > ema_short and current_close < ema_long) or \
+            (current_close < ema_short and current_close > ema_long)
 
-        if buy_score > threshold:
-            signals.append({
-                'signal_type': 'BUY',
-                'price': current_price,
-                'strength': buy_score,
-                'macd': macd_signals,
-                'rsi': rsi_signals['current'],
-                'volume_ratio': volume_signals['volume_ratio'],
-                'pattern': candle_patterns.get('pattern_name'),
-                'ema': ema_signals['trend'] if ema_signals else None,
-                'reason': self._generate_signal_reason(
-                    'BUY',
-                    macd_signals,
-                    rsi_signals,
-                    candle_patterns,
-                    volume_signals,
-                    ema_signals
-                )
-            })
+        # Check for bullish/bearish alignment
+        bullish_alignment = price_above_short and price_above_long and ema_short > ema_long and ema_short > prev_ema_short
+        bearish_alignment = current_close < ema_short and current_close < ema_long and ema_short < ema_long and ema_short < prev_ema_short
 
-        if sell_score > threshold:
-            signals.append({
-                'signal_type': 'SELL',
-                'price': current_price,
-                'strength': sell_score,
-                'macd': macd_signals,
-                'rsi': rsi_signals['current'],
-                'volume_ratio': volume_signals['volume_ratio'],
-                'pattern': candle_patterns.get('pattern_name'),
-                'ema': ema_signals['trend'] if ema_signals else None,
-                'reason': self._generate_signal_reason(
-                    'SELL',
-                    macd_signals,
-                    rsi_signals,
-                    candle_patterns,
-                    volume_signals,
-                    ema_signals
-                )
-            })
+        # Check for pullback to EMA (potential entry points)
+        pullback_to_ema34 = (trend == "BULLISH" and abs(
+            current_close - ema_short) / ema_short < 0.005)
+        pullback_to_ema89 = (trend == "BULLISH" and abs(
+            current_close - ema_long) / ema_long < 0.005)
+
+        # Calculate signal strength (0-10)
+        strength = 0
+
+        if is_golden_cross:
+            strength += 10  # Fresh bullish crossover is very strong
+        elif is_death_cross:
+            strength += 8   # Fresh bearish crossover
+        elif cross_candles_ago > 0 and cross_candles_ago <= 3:
+            # Recent crossover (within 3 candles)
+            strength += (5 - cross_candles_ago)
+
+        if bullish_alignment:
+            strength += 5
+        elif bearish_alignment:
+            strength += 5
+
+        if pullback_to_ema34 or pullback_to_ema89:
+            strength += 3  # Potential entry point
+
+        signals = {
+            'trend': trend,
+            'ema_short': ema_short,
+            'ema_long': ema_long,
+            'ema_short_slope': "UP" if ema_short > prev_ema_short else "DOWN" if ema_short < prev_ema_short else "FLAT",
+            'ema_long_slope': "UP" if ema_long > prev_ema_long else "DOWN" if ema_long < prev_ema_long else "FLAT",
+            'price_above_short': price_above_short,
+            'price_above_long': price_above_long,
+            'price_between_emas': price_between_emas,
+            'is_golden_cross': is_golden_cross,
+            'is_death_cross': is_death_cross,
+            'cross_candles_ago': cross_candles_ago,
+            'bullish_alignment': bullish_alignment,
+            'bearish_alignment': bearish_alignment,
+            'pullback_to_ema34': pullback_to_ema34,
+            'pullback_to_ema89': pullback_to_ema89,
+            'buy_signal': is_golden_cross or (trend == "BULLISH" and (pullback_to_ema34 or pullback_to_ema89)),
+            'sell_signal': is_death_cross or (trend == "BEARISH" and price_above_short),
+            'strength': min(strength, 10)  # Cap at 10
+        }
 
         return signals
-
-    def _generate_signal_reason(self, signal_type: str, macd: Dict,
-                                rsi: Dict, patterns: Dict, volume: Dict,
-                                ema: Dict = None) -> str:
-        """Generate trading signal reason"""
-        reasons = []
-
-        if signal_type == 'BUY':
-            if macd['buy_signal']:
-                reasons.append(
-                    f"MACD cross up (strength: {macd['strength']:.1f})")
-            if rsi['oversold']:
-                reasons.append(f"RSI oversold at {rsi['current']:.1f}")
-            if patterns['bullish']:
-                reasons.append(f"Bullish {patterns['pattern_name']}")
-            if volume['bullish_volume']:
-                reasons.append(
-                    f"High volume ({volume['volume_ratio']:.1f}x avg)")
-            # Add EMA reasons
-            if ema and ema['buy_signal']:
-                if ema['is_golden_cross']:
-                    reasons.append(f"Golden Cross (EMA34 above EMA89)")
-                if ema['pullback_to_ema34']:
-                    reasons.append(f"Price pullback to EMA34 support")
-                if ema['pullback_to_ema89']:
-                    reasons.append(f"Price pullback to EMA89 support")
-                if ema['bullish_alignment']:
-                    reasons.append(f"Strong bullish trend alignment")
-
-        else:  # SELL
-            if macd['sell_signal']:
-                reasons.append(
-                    f"MACD cross down (strength: {macd['strength']:.1f})")
-            if rsi['overbought']:
-                reasons.append(f"RSI overbought at {rsi['current']:.1f}")
-            if patterns['bearish']:
-                reasons.append(f"Bearish {patterns['pattern_name']}")
-            if volume['bearish_volume']:
-                reasons.append(
-                    f"High volume ({volume['volume_ratio']:.1f}x avg)")
-            # Add EMA reasons
-            if ema and ema['sell_signal']:
-                if ema['is_death_cross']:
-                    reasons.append(f"Death Cross (EMA34 below EMA89)")
-                if not ema['price_above_short'] and ema['trend'] == 'BEARISH':
-                    reasons.append(f"Price below EMA34 in downtrend")
-                if ema['bearish_alignment']:
-                    reasons.append(f"Strong bearish trend alignment")
-
-        return " | ".join(reasons)
 
     def _is_bullish_engulfing(self, candles: pd.DataFrame) -> bool:
         """Kiểm tra mô hình nến bao trùm tăng"""

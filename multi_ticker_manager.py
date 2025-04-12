@@ -235,8 +235,8 @@ class MultiTickerManager:
                 'bots': {}
             }
 
-            for symbol, bot in self.bots.items():
-                status['bots'][symbol] = bot.get_status()
+            # for symbol, bot in self.bots.items():
+            #     status['bots'][symbol] = bot.get_status()
 
         return status
 

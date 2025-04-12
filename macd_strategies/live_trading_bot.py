@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import threading
 import os
+from binance.helpers import round_step_size
+from helpers.price import adjust_precision
 from binance_data_fetcher import BinanceDataFetcher
 
 from macd_strategies.strategy import MacdRsiStrategy
@@ -225,14 +227,9 @@ class MacdTradingBot:
 
             # Get analysis from MACD-RSI strategy
             analysis = self.strategy.analyze_market(self.historical_data)
-
             # Process signals
             for signal in analysis['signals']:
                 self._process_trading_signal(signal)
-
-            # Send analysis to Telegram
-            if self.telegram:
-                self.telegram.send_message(analysis)
 
         except Exception as e:
             error_msg = f"Error running analysis: {str(e)}"
@@ -293,14 +290,11 @@ class MacdTradingBot:
             # Place order
             if not self.test_mode:
                 self._place_order_on_exchange(order)
+                self._print_order_info(order, "TEST")
+
             else:
                 logger.info(f"TEST MODE: Would place order: {order}")
                 self._print_order_info(order, "TEST")
-
-            # Notify about new order
-            if self.telegram:
-                self.telegram.send_message(
-                    f"New signal: {signal['signal_type']} {self.symbol} at {entry_price}")
 
         except Exception as e:
             error_msg = f"Error processing trading signal: {str(e)}"
@@ -374,8 +368,8 @@ class MacdTradingBot:
                         type='LIMIT',
                         quantity=quantity,
                         timeInForce='GTC',
-                        price=self._adjust_price_precision(
-                            order['entry_price']),
+                        price=round_step_size(order['entry_price'], float(
+                            self.symbol_precision['tickSize'])),
                         **time_params  # Add timestamp and recvWindow
                     )
 
@@ -406,10 +400,12 @@ class MacdTradingBot:
                 order['actual_entry_price'] = self.current_price
 
             quantity = order['position_size'] / order['actual_entry_price']
-            quantity = self._adjust_quantity_precision(quantity)
+            quantity = adjust_precision(
+                quantity, self.symbol_precision['quantityPrecision'])
 
             # Adjust price precision
-            stop_price = self._adjust_price_precision(order['stop_loss'])
+            stop_price = round_step_size(
+                order['stop_loss'], float(self.symbol_precision['tickSize']))
 
             # Place stop loss order
             response = self.client.futures_create_order(
@@ -439,11 +435,13 @@ class MacdTradingBot:
                 order['actual_entry_price'] = self.current_price
 
             quantity = order['position_size'] / order['actual_entry_price']
-            quantity = self._adjust_quantity_precision(quantity)
+            quantity = adjust_precision(
+                quantity, self.symbol_precision['quantityPrecision'])
 
             # Get tp1 price
             tp_price = order['take_profit']['tp1']
-            tp_price = self._adjust_price_precision(tp_price)
+            tp_price = round_step_size(
+                tp_price, float(self.symbol_precision['tickSize']))
 
             # Place take profit order
             response = self.client.futures_create_order(
@@ -502,6 +500,9 @@ class MacdTradingBot:
 
         print(order_info)
         logger.info(order_info)
+        if status != "TEST":
+            self.telegram.send_message(order_info, topic_id=os.getenv(
+                'TELEGRAM_ORDERS_TOPIC_ID'))
 
     def _print_signal_info(self, signal):
         """Print information about a trading signal"""
@@ -521,8 +522,7 @@ class MacdTradingBot:
             f"{'='*50}\n"
         )
 
-        print(signal_info)
-        logger.info(signal_info)
+        self.telegram.send_message(signal_info)
 
     def _fetch_initial_data(self):
         """Fetch initial historical data"""
@@ -638,7 +638,7 @@ class MacdTradingBot:
                 current_minute = now.minute
 
                 # Check if current minute is divisible by 3 (0,3,6,9,12,15,18,21,...57)
-                if current_minute % 3 == 0:
+                if current_minute % 5 == 0:
                     logger.info(f"Running analysis at minute {current_minute}")
 
                     # Fetch newest data

@@ -866,29 +866,41 @@ class LiveTradingBot:
             tp_order_ids = {}
 
             # Split quantity among take profit levels
-            tp_levels = len(order['take_profit'])
+            # tp_levels = len(order['take_profit'])
+            tp_levels = 1
             if order['actual_entry_price'] <= 0 or order['actual_entry_price'] is None:
                 order['actual_entry_price'] = self.current_price
             qty_per_level = (order['position_size'] /
                              order['actual_entry_price']) / tp_levels
             qty_per_level = adjust_precision(
                 qty_per_level, self.symbol_precision['quantityPrecision'])
+            tp_price = order['take_profit']['tp1']
+            tp_price = round_step_size(tp_price, float(
+                self.symbol_precision['tickSize']))
+            response = self.client.futures_create_order(
+                symbol=self.symbol,
+                side='SELL' if order['side'] == 'LONG' else 'BUY',
+                type='TAKE_PROFIT_MARKET',
+                quantity=qty_per_level,
+                stopPrice=tp_price,
+                **self.time_sync.get_timestamp_with_recvwindow()  # Add timestamp and recvWindow
+            )
+            tp_order_ids["tp1"] = response['orderId']
 
-            for tp_name, tp_price in order['take_profit'].items():
-                tp_price = round_step_size(tp_price, float(
-                    self.symbol_precision['tickSize']))
-                print("tp_price", tp_price)
-                response = self.client.futures_create_order(
-                    symbol=self.symbol,
-                    side='SELL' if order['side'] == 'LONG' else 'BUY',
-                    type='TAKE_PROFIT_MARKET',
-                    quantity=qty_per_level,
-                    stopPrice=tp_price,
-                    **self.time_sync.get_timestamp_with_recvwindow()  # Add timestamp and recvWindow
-                )
+            # for tp_name, tp_price in order['take_profit'].items():
+            #     tp_price = round_step_size(tp_price, float(
+            #         self.symbol_precision['tickSize']))
+            #     response = self.client.futures_create_order(
+            #         symbol=self.symbol,
+            #         side='SELL' if order['side'] == 'LONG' else 'BUY',
+            #         type='TAKE_PROFIT_MARKET',
+            #         quantity=qty_per_level,
+            #         stopPrice=tp_price,
+            #         **self.time_sync.get_timestamp_with_recvwindow()  # Add timestamp and recvWindow
+            #     )
 
-                tp_order_ids[tp_name] = response['orderId']
-                logger.info(f"Take profit {tp_name} placed at {tp_price}")
+            #     tp_order_ids[tp_name] = response['orderId']
+            #     logger.info(f"Take profit {tp_name} placed at {tp_price}")
 
             order['take_profit_order_ids'] = tp_order_ids
 

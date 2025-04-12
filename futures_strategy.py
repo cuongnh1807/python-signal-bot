@@ -234,9 +234,9 @@ class FuturesStrategy:
         elif volume_ratio >= 4 or setup_quality >= 75:
             aggression = 0.75  # Aggressive for good volume or quality
         elif volume_ratio >= 2.5 or setup_quality >= 60:
-            aggression = 0.6  # Moderate for decent volume or quality
+            aggression = 0.5  # Moderate for decent volume or quality
         else:
-            aggression = 0.4  # Conservative for low volume and quality
+            aggression = 0.3  # Conservative for low volume and quality
 
         entries = {}
         if volatility is not None and volatility > 0:

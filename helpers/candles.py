@@ -173,24 +173,60 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
                                          1] if current_index > 0 else 0
         if (ob_direction == 1 and macd < macd_signal) or (ob_direction == -1 and macd > macd_signal):
             # MACD crossover against OB direction
-            reversal_score += 20
+            reversal_score += 25
         if (ob_direction == 1 and macd_hist < prev_hist) or (ob_direction == -1 and macd_hist > prev_hist):
             # MACD histogram weakening
-            reversal_score += 20
+            reversal_score += 25
     except KeyError:
-        pass  # Skip if MACD data is unavailable
-
+        pass
+    try:
+        ema34 = df['ema34'].iloc[current_index]
+        ema89 = df['ema89'].iloc[current_index]
+        prev_ema34 = df['ema34'].iloc[current_index -
+                                      1] if current_index > 0 else None
+        prev_ema89 = df['ema89'].iloc[current_index -
+                                      1] if current_index > 0 else None
+        close = df['close'].iloc[current_index]
+        prev_close = df['close'].iloc[current_index -
+                                      1] if current_index > 0 else None
+        if prev_ema34 is not None and prev_ema89 is not None and prev_close is not None:
+            if ob_direction == 1:
+                # Check for EMA crossover: EMA34 crosses below EMA89
+                if prev_ema34 > prev_ema89 and ema34 < ema89:
+                    reversal_score += 30
+                # Check for price crossing below EMA34
+                if prev_close > prev_ema34 and close < ema34:
+                    reversal_score += 20
+                # Check for EMA convergence
+                strength_previous = prev_ema34 - prev_ema89
+                strength_current = ema34 - ema89
+                if strength_current < strength_previous and strength_previous > 0:
+                    reversal_score += 15
+            elif ob_direction == -1:
+                # Check for EMA crossover: EMA34 crosses above EMA89
+                if prev_ema34 < prev_ema89 and ema34 > ema89:
+                    reversal_score += 30
+                # Check for price crossing above EMA34
+                if prev_close < prev_ema34 and close > ema34:
+                    reversal_score += 20
+                # Check for EMA convergence
+                strength_previous = prev_ema89 - prev_ema34
+                strength_current = ema89 - ema34
+                if strength_current < strength_previous and strength_previous > 0:
+                    reversal_score += 15
+    except KeyError:
+        pass
     reversal_score = min(reversal_score, 100)  # Cap reversal score at 100
 
     # Early rejection if reversal score is very high
-    if reversal_score >= 70:
+    if reversal_score >= 75:
         print(
             f"🔴 REJECTING {ob_direction_str} OB: Strong reversal (score: {reversal_score})")
         warnings.append(f"Strong reversal (score: {reversal_score})")
         return False, {
             "setup_quality": 0,
             "final_score": 0,
-            "threshold": 70,
+            "threshold": 75,
             "warnings": warnings,
             "reversal_score": reversal_score
         }
@@ -256,8 +292,8 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     )
 
     # Set Adaptive Threshold
-    base_threshold = 35
-    threshold = min(70, base_threshold + reversal_score * 0.4)
+    base_threshold = 40
+    threshold = min(75, base_threshold + reversal_score * 0.4)
 
     # Determine if OB should be kept
     setup_quality = final_score

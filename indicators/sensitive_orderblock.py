@@ -39,9 +39,12 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
     # Ensure DataFrame has integer index for calculations
     df = df.reset_index(drop=True)
     analysis = analyze_candle_volume(df, len(df)-1)
+    df['ema34'] = df['close'].ewm(span=34, adjust=False).mean()
+    df['ema89'] = df['close'].ewm(span=89, adjust=False).mean()
 
     # Calculate MACD for filtering
     macd_info = calculate_macd(df)
+
     df['macd'] = macd_info['macd']
     df['macd_signal'] = macd_info['signal']
     df['macd_hist'] = macd_info['histogram']
@@ -68,9 +71,6 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
     # This matches exactly the Pine Script: pc = (open - open[4]) / open[4] * 100
     df['pc'] = (df['open'] - df['open'].shift(4)) / df['open'].shift(4) * 100
 
-    # Detect crossovers and crossunders of ROC with sensitivity threshold
-    # Crossunder: pc[1] > -sens and pc <= -sens
-    # Crossover: pc[1] < sens and pc >= sens
     df['crossunder'] = (df['pc'].shift(1) > -sens) & (df['pc'] <= -sens)
     df['crossover'] = (df['pc'].shift(1) < sens) & (df['pc'] >= sens)
 

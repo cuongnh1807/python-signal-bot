@@ -1036,7 +1036,10 @@ class MacdRsiStrategy:
 
         # Get important indicators
         current_price = df['close'].iloc[-1]
-        rsi = df['rsi'].iloc[-1] if 'rsi' in df.columns else None
+        if 'rsi' in df.columns:
+            rsi = df['rsi'].iloc[-1]
+        else:
+            rsi = calculate_rsi(df, self.rsi_period).iloc[-1]
 
         # 1. Check for oversold/overbought conditions with RSI
         if rsi is not None:

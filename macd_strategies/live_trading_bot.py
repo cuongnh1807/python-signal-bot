@@ -263,7 +263,6 @@ class MacdTradingBot:
             # Check for reversals specifically (even without multi-timeframe)
             reversals = self.strategy.detect_timeframe_reversals(
                 self.historical_data)
-            print("reversals", reversals)
             if reversals['direction'] != 'NEUTRAL' and reversals['strength'] >= 8:
                 logger.info(
                     f"Strong {reversals['direction']} reversal detected with strength {reversals['strength']}")

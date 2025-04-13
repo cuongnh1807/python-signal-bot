@@ -674,8 +674,8 @@ class MacdTradingBot:
             # Start order status checking thread
             # self.status_thread = threading.Thread(
             #     target=self._status_check_loop)
-            self.status_thread.daemon = True
-            self.status_thread.start()
+            # self.status_thread.daemon = True
+            # self.status_thread.start()
 
             # Start market analysis thread
             self.analysis_thread = threading.Thread(

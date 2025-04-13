@@ -46,6 +46,7 @@ def calculate_rsi(data: Union[pd.DataFrame, pd.Series], rsi_length: int = 14, ma
 
     # Calculate RSI
     rsi = 100 - (100 / (1 + rs))
+
     return rsi
 
 

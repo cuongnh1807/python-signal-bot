@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List
 import os
+from indicators.rsi import calculate_macd, calculate_rsi
 
 
 # Thiết lập logging
@@ -131,24 +132,12 @@ class MacdRsiStrategy:
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate comprehensive technical indicators"""
         df = df.copy()
-
-        # Original indicators
-        # RSI calculation
-        delta = df['close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(
-            window=self.rsi_period).mean()
-        loss = (-delta.where(delta < 0, 0)
-                ).rolling(window=self.rsi_period).mean()
-        rs = gain / loss
-        df['rsi'] = 100 - (100 / (1 + rs))
-
-        # MACD calculation
-        ema_fast = df['close'].ewm(span=self.macd_fast, adjust=False).mean()
-        ema_slow = df['close'].ewm(span=self.macd_slow, adjust=False).mean()
-        df['macd'] = ema_fast - ema_slow
-        df['macd_signal'] = df['macd'].ewm(
-            span=self.macd_signal, adjust=False).mean()
-        df['macd_hist'] = df['macd'] - df['macd_signal']
+        rsi = calculate_rsi(df, self.rsi_period)
+        df['rsi'] = rsi
+        macd_info = calculate_macd(df)
+        df['macd'] = macd_info['macd']
+        df['macd_signal'] = macd_info['signal']
+        df['macd_hist'] = macd_info['histogram']
 
         # EMA calculations - more comprehensive EMAs
         df['ema8'] = df['close'].ewm(span=8, adjust=False).mean()
@@ -157,12 +146,12 @@ class MacdRsiStrategy:
         df['ema89'] = df['close'].ewm(span=self.ema_long, adjust=False).mean()
         df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
 
-        # Volume indicators
+    # Volume indicators
         df['volume_ma'] = df['volume'].rolling(
             window=self.volume_ma_period).mean()
         df['volume_ratio'] = df['volume'] / df['volume_ma']
 
-        # On-Balance Volume (OBV) for volume confirmation
+     # On-Balance Volume (OBV) for volume confirmation
         obv = 0
         df['obv'] = 0
         for i in range(1, len(df)):
@@ -583,7 +572,7 @@ class MacdRsiStrategy:
             sell_reasons.append("Overbought in bearish trend")
 
         # Threshold for generating signals
-        threshold = 7.0  # Higher threshold for more stringent requirements
+        threshold = 8  # Higher threshold for more stringent requirements
 
         # Create signals if score exceeds threshold
         if buy_score > threshold:

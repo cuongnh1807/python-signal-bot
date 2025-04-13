@@ -391,7 +391,8 @@ class MacdTradingBot:
                     )
 
                     # Get filled price
-                    order['actual_entry_price'] = float(response['avgPrice'])
+                    order['actual_entry_price'] = order['entry_price'] or float(
+                        response['avgPrice'])
                     order['order_id'] = response['orderId']
                     order['status'] = 'ACTIVE'
 
@@ -578,7 +579,8 @@ class MacdTradingBot:
             f"{'='*50}\n"
         )
 
-        self.telegram.send_message(signal_info)
+        self.telegram.send_message(signal_info, topic_id=os.getenv(
+            'TELEGRAM_SIGNALS_TOPIC_ID'))
 
     def _fetch_higher_timeframe_data(self):
         """Fetch higher timeframe data for multi-timeframe analysis"""

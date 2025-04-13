@@ -21,10 +21,6 @@ from time_synchronizer import initialize_time_sync, get_time_synchronizer
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("macd_trading_bot.log"),
-        logging.StreamHandler()
-    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -267,6 +263,7 @@ class MacdTradingBot:
             # Check for reversals specifically (even without multi-timeframe)
             reversals = self.strategy.detect_timeframe_reversals(
                 self.historical_data)
+            print("reversals", reversals)
             if reversals['direction'] != 'NEUTRAL' and reversals['strength'] >= 8:
                 logger.info(
                     f"Strong {reversals['direction']} reversal detected with strength {reversals['strength']}")
@@ -309,11 +306,11 @@ class MacdTradingBot:
 
             # Calculate stop loss (2% from entry)
             stop_loss = entry_price * \
-                0.98 if signal['signal_type'] == 'BUY' else entry_price * 1.02
+                0.985 if signal['signal_type'] == 'BUY' else entry_price * 1.015
 
             # Calculate take profit level (only tp1)
             take_profit = {
-                'tp1': entry_price * 1.03 if signal['signal_type'] == 'BUY' else entry_price * 0.97,
+                'tp1': entry_price * 1.015 if signal['signal_type'] == 'BUY' else entry_price * 0.985,
             }
 
             # Calculate position size based on risk

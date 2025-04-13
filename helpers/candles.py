@@ -141,7 +141,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
             if ob_direction == 1:  # Bullish OB, look for bearish reversal patterns
                 if pin_bar == -1:
                     # Bearish Pin Bar
-                    reversal_score += 20
+                    reversal_score += 25
                 if engulfing == -1:
                     # Bearish Engulfing (strong signal)
                     reversal_score += 25
@@ -152,7 +152,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
             elif ob_direction == -1:  # Bearish OB, look for bullish reversal patterns
                 if pin_bar == 1:
                     # Bullish Pin Bar
-                    reversal_score += 20
+                    reversal_score += 25
                 if engulfing == 1:
                     # Bullish Engulfing (strong signal)
                     reversal_score += 25
@@ -293,7 +293,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
 
     # Set Adaptive Threshold
     base_threshold = 40
-    threshold = min(75, base_threshold + reversal_score * 0.4)
+    threshold = min(70, base_threshold + reversal_score * 0.5)
 
     # Determine if OB should be kept
     setup_quality = final_score

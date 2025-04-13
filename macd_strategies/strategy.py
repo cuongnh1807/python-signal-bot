@@ -163,7 +163,61 @@ class MacdRsiStrategy:
         df['ema89'] = df['close'].ewm(span=self.ema_long, adjust=False).mean()
         df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
 
-        # Rest of your indicator calculations...
+    # Volume indicators
+        df['volume_ma'] = df['volume'].rolling(
+            window=self.volume_ma_period).mean()
+        df['volume_ratio'] = df['volume'] / df['volume_ma']
+
+     # On-Balance Volume (OBV) for volume confirmation
+        obv = 0
+        df['obv'] = 0
+        for i in range(1, len(df)):
+            if df['close'].iloc[i] > df['close'].iloc[i-1]:
+                obv += df['volume'].iloc[i]
+            elif df['close'].iloc[i] < df['close'].iloc[i-1]:
+                obv -= df['volume'].iloc[i]
+            df.loc[i, "obv"] = obv
+
+        # Bollinger Bands
+        df['bb_middle'] = df['close'].rolling(window=20).mean()
+        bb_std = df['close'].rolling(window=20).std()
+        df['bb_upper'] = df['bb_middle'] + (bb_std * 2)
+        df['bb_lower'] = df['bb_middle'] - (bb_std * 2)
+        df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
+
+        # Average True Range (ATR) for volatility
+        high_low = df['high'] - df['low']
+        high_close = abs(df['high'] - df['close'].shift())
+        low_close = abs(df['low'] - df['close'].shift())
+        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+        true_range = ranges.max(axis=1)
+        df['atr'] = true_range.rolling(window=14).mean()
+
+        # Stochastic Oscillator for momentum
+        lowest_low = df['low'].rolling(window=14).min()
+        highest_high = df['high'].rolling(window=14).max()
+        df['stoch_k'] = 100 * \
+            ((df['close'] - lowest_low) / (highest_high - lowest_low))
+        df['stoch_d'] = df['stoch_k'].rolling(window=3).mean()
+
+        # Rate of Change (ROC) for momentum
+        df['roc'] = df['close'].pct_change(periods=10) * 100
+
+        # Directional Movement Index (DMI) components for trend strength
+        plus_dm = df['high'].diff()
+        minus_dm = df['low'].diff(-1).abs()
+        plus_dm[plus_dm < 0] = 0
+        minus_dm[minus_dm < 0] = 0
+        tr = true_range  # We already calculated true range above
+
+        plus_di = 100 * (plus_dm.rolling(window=14).sum() /
+                         tr.rolling(window=14).sum())
+        minus_di = 100 * (minus_dm.rolling(window=14).sum() /
+                          tr.rolling(window=14).sum())
+        df['plus_di'] = plus_di
+        df['minus_di'] = minus_di
+        df['adx'] = (abs(plus_di - minus_di) / (plus_di + minus_di)
+                     * 100).rolling(window=14).mean()
 
         return df
 

@@ -888,3 +888,249 @@ class MacdRsiStrategy:
                 third['close'] < third['open'] and
                 # Giảm qua giữa nến 1
                 third['close'] < (first['open'] + first['close']) / 2)
+
+    def analyze_multi_timeframe(self, data_dict: Dict[str, pd.DataFrame]) -> Dict:
+        """
+        Analyze market across multiple timeframes to find high-probability entries.
+
+        Parameters:
+        -----------
+        data_dict: Dict of DataFrames containing price data for different timeframes
+                   Format: {'1h': df_1h, '4h': df_4h}
+
+        Returns:
+        --------
+        Dict containing multi-timeframe analysis results
+        """
+        mtf_analysis = {
+            'aligned_trend': False,
+            'reversal_signals': [],
+            'htf_support_resistance': {},
+            'best_entries': []
+        }
+
+        # Get individual analyses for each timeframe
+        analyses = {}
+        for timeframe, df in data_dict.items():
+            if len(df) >= 100:  # Ensure enough data
+                analyses[timeframe] = self.analyze_market(df)
+
+        # Return early if we don't have enough timeframes to analyze
+        if len(analyses) < 2:
+            return mtf_analysis
+
+        # Check for trend alignment across timeframes
+        ltf_trend = analyses.get(min(analyses.keys()), {}).get(
+            'market_structure', {}).get('short_term_trend')
+        htf_trend = analyses.get(max(analyses.keys()), {}).get(
+            'market_structure', {}).get('medium_term_trend')
+
+        if ltf_trend and htf_trend and ltf_trend == htf_trend:
+            mtf_analysis['aligned_trend'] = True
+            mtf_analysis['aligned_direction'] = ltf_trend
+
+        # Detect reversals on higher timeframes
+        htf_key = max(analyses.keys())
+        htf_analysis = analyses.get(htf_key, {})
+        htf_candle_patterns = htf_analysis.get(
+            'indicators', {}).get('patterns', {})
+        htf_divergence = htf_analysis.get(
+            'indicators', {}).get('divergence', {})
+
+        # Check for reversal patterns on higher timeframe
+        if htf_candle_patterns.get('bullish') or htf_divergence.get('bullish_rsi_divergence'):
+            mtf_analysis['reversal_signals'].append({
+                'timeframe': htf_key,
+                'type': 'BULLISH',
+                'pattern': htf_candle_patterns.get('pattern_name') if htf_candle_patterns.get('bullish') else 'RSI Divergence',
+                'price': htf_analysis.get('current_price', 0)
+            })
+
+        if htf_candle_patterns.get('bearish') or htf_divergence.get('bearish_rsi_divergence'):
+            mtf_analysis['reversal_signals'].append({
+                'timeframe': htf_key,
+                'type': 'BEARISH',
+                'pattern': htf_candle_patterns.get('pattern_name') if htf_candle_patterns.get('bearish') else 'RSI Divergence',
+                'price': htf_analysis.get('current_price', 0)
+            })
+
+        # Extract support/resistance from higher timeframe
+        htf_sr = htf_analysis.get('sr_levels', {})
+        mtf_analysis['htf_support_resistance'] = htf_sr
+
+        # Find high-probability entry points (confluence of factors)
+        ltf_key = min(analyses.keys())
+        ltf_analysis = analyses.get(ltf_key, {})
+        ltf_signals = ltf_analysis.get('signals', [])
+
+        for signal in ltf_signals:
+            entry_quality = 0
+            reasons = []
+
+            # Base quality from the signal itself
+            entry_quality += signal.get('strength', 0) * 0.5
+
+            # Boost if trend is aligned across timeframes
+            if mtf_analysis['aligned_trend']:
+                if (signal['signal_type'] == 'BUY' and mtf_analysis['aligned_direction'] == 'BULLISH') or \
+                   (signal['signal_type'] == 'SELL' and mtf_analysis['aligned_direction'] == 'BEARISH'):
+                    entry_quality += 2
+                    reasons.append(
+                        f"Aligned {mtf_analysis['aligned_direction']} trend across timeframes")
+
+            # Boost if signal is near HTF support/resistance
+            if signal['signal_type'] == 'BUY' and htf_sr.get('near_support'):
+                entry_quality += 3
+                reasons.append(
+                    f"Price near higher timeframe support ({htf_sr.get('closest_support', 0):.2f})")
+
+            if signal['signal_type'] == 'SELL' and htf_sr.get('near_resistance'):
+                entry_quality += 3
+                reasons.append(
+                    f"Price near higher timeframe resistance ({htf_sr.get('closest_resistance', 0):.2f})")
+
+            # Boost if reversal on higher timeframe aligns with signal
+            for reversal in mtf_analysis['reversal_signals']:
+                if (signal['signal_type'] == 'BUY' and reversal['type'] == 'BULLISH') or \
+                   (signal['signal_type'] == 'SELL' and reversal['type'] == 'BEARISH'):
+                    entry_quality += 4
+                    reasons.append(
+                        f"Confirmed by {reversal['type']} reversal on {reversal['timeframe']} ({reversal['pattern']})")
+
+            # Add to best entries if quality is sufficient
+            if entry_quality >= 5:
+                entry = signal.copy()
+                entry['mtf_quality'] = entry_quality
+                entry['mtf_reasons'] = reasons
+                mtf_analysis['best_entries'].append(entry)
+
+        # Sort entries by quality
+        mtf_analysis['best_entries'].sort(
+            key=lambda x: x.get('mtf_quality', 0), reverse=True)
+
+        return mtf_analysis
+
+    def detect_timeframe_reversals(self, df: pd.DataFrame) -> Dict:
+        """
+        Detect potential market reversals using multiple methods.
+
+        Parameters:
+        -----------
+        df: DataFrame with price data
+
+        Returns:
+        --------
+        Dict with reversal signals
+        """
+        reversals = {
+            'bullish_reversals': [],
+            'bearish_reversals': [],
+            'strength': 0
+        }
+
+        # Get important indicators
+        current_price = df['close'].iloc[-1]
+        rsi = df['rsi'].iloc[-1] if 'rsi' in df.columns else None
+
+        # 1. Check for oversold/overbought conditions with RSI
+        if rsi is not None:
+            if rsi < 30:
+                reversals['bullish_reversals'].append({
+                    'type': 'RSI_OVERSOLD',
+                    'value': rsi,
+                    'price': current_price,
+                    'strength': 3
+                })
+            elif rsi > 70:
+                reversals['bearish_reversals'].append({
+                    'type': 'RSI_OVERBOUGHT',
+                    'value': rsi,
+                    'price': current_price,
+                    'strength': 3
+                })
+
+        # 2. Check for candlestick reversal patterns
+        patterns = self._analyze_candle_patterns(df)
+        if patterns['bullish']:
+            reversals['bullish_reversals'].append({
+                'type': 'CANDLESTICK_PATTERN',
+                'pattern': patterns['pattern_name'],
+                'price': current_price,
+                'strength': patterns['strength']
+            })
+        elif patterns['bearish']:
+            reversals['bearish_reversals'].append({
+                'type': 'CANDLESTICK_PATTERN',
+                'pattern': patterns['pattern_name'],
+                'price': current_price,
+                'strength': patterns['strength']
+            })
+
+        # 3. Check for divergences
+        divergence = self._analyze_divergence(df)
+        if divergence['bullish_rsi_divergence']:
+            reversals['bullish_reversals'].append({
+                'type': 'RSI_DIVERGENCE',
+                'price': current_price,
+                'strength': 5  # Divergences are strong signals
+            })
+        if divergence['bearish_rsi_divergence']:
+            reversals['bearish_reversals'].append({
+                'type': 'RSI_DIVERGENCE',
+                'price': current_price,
+                'strength': 5  # Divergences are strong signals
+            })
+
+        # 4. Check for EMA crossovers
+        ema_signals = self._analyze_ema(df)
+        if ema_signals['is_golden_cross']:
+            reversals['bullish_reversals'].append({
+                'type': 'EMA_CROSS',
+                'price': current_price,
+                'strength': 4,
+                'description': 'Golden Cross (EMA34 above EMA89)'
+            })
+        elif ema_signals['is_death_cross']:
+            reversals['bearish_reversals'].append({
+                'type': 'EMA_CROSS',
+                'price': current_price,
+                'strength': 4,
+                'description': 'Death Cross (EMA34 below EMA89)'
+            })
+
+        # 5. Check for price rejection at key levels
+        sr_levels = self._analyze_support_resistance(df)
+        if sr_levels['near_support'] and df['low'].iloc[-1] < sr_levels['closest_support'] and df['close'].iloc[-1] > sr_levels['closest_support']:
+            # Price rejected from support (bullish)
+            reversals['bullish_reversals'].append({
+                'type': 'SUPPORT_REJECTION',
+                'level': sr_levels['closest_support'],
+                'price': current_price,
+                'strength': 4
+            })
+        if sr_levels['near_resistance'] and df['high'].iloc[-1] > sr_levels['closest_resistance'] and df['close'].iloc[-1] < sr_levels['closest_resistance']:
+            # Price rejected from resistance (bearish)
+            reversals['bearish_reversals'].append({
+                'type': 'RESISTANCE_REJECTION',
+                'level': sr_levels['closest_resistance'],
+                'price': current_price,
+                'strength': 4
+            })
+
+        # Calculate overall reversal strength
+        bull_strength = sum(r['strength']
+                            for r in reversals['bullish_reversals'])
+        bear_strength = sum(r['strength']
+                            for r in reversals['bearish_reversals'])
+
+        if bull_strength > bear_strength:
+            reversals['direction'] = 'BULLISH'
+            reversals['strength'] = bull_strength
+        elif bear_strength > bull_strength:
+            reversals['direction'] = 'BEARISH'
+            reversals['strength'] = bear_strength
+        else:
+            reversals['direction'] = 'NEUTRAL'
+            reversals['strength'] = 0
+
+        return reversals

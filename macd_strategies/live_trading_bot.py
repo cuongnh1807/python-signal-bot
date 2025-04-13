@@ -122,6 +122,14 @@ class MacdTradingBot:
         # New parameter
         self.max_distance_to_current_price = max_distance_to_current_price
 
+        # Add multi-timeframe parameters
+        self.use_multi_timeframe = True
+        self.higher_timeframe = '1h'
+        self.lower_timeframe = self.interval  # Current timeframe
+
+        # Add storage for multi-timeframe data
+        self.htf_data = pd.DataFrame()  # Higher timeframe data
+
         logger.info(
             f"Initialized MACD Trading Bot for {symbol} on {interval} timeframe")
 
@@ -218,16 +226,64 @@ class MacdTradingBot:
                 self.telegram.send_message(error_msg)
 
     def _run_analysis(self):
-        """Run strategy analysis and generate orders"""
+        """Run strategy analysis with multi-timeframe support"""
         try:
             if len(self.historical_data) < self.window_size:
                 logger.warning(
                     f"Not enough data for analysis. Have {len(self.historical_data)}, need {self.window_size}")
                 return
 
-            # Get analysis from MACD-RSI strategy
+            # Basic single-timeframe analysis
             analysis = self.strategy.analyze_market(self.historical_data)
-            # Process signals
+
+            # Multi-timeframe analysis if enabled
+            mtf_analysis = None
+            if self.use_multi_timeframe:
+                # Fetch higher timeframe data if needed
+                if len(self.htf_data) < self.window_size:
+                    self._fetch_higher_timeframe_data()
+                else:
+                    # Update the last candle of HTF data if needed
+                    current_htf_time = self._get_current_candle_time(
+                        self.higher_timeframe)
+                    if len(self.htf_data) > 0 and self.htf_data.index[-1] < current_htf_time:
+                        self._fetch_higher_timeframe_data()
+
+                # Run multi-timeframe analysis if we have data for both timeframes
+                if len(self.htf_data) >= self.window_size:
+                    data_dict = {
+                        self.lower_timeframe: self.historical_data,
+                        self.higher_timeframe: self.htf_data
+                    }
+                    mtf_analysis = self.strategy.analyze_multi_timeframe(
+                        data_dict)
+
+                    # Use best entries from multi-timeframe analysis if available
+                    if mtf_analysis and mtf_analysis.get('best_entries'):
+                        for entry in mtf_analysis['best_entries']:
+                            self._process_trading_signal(entry)
+                        return  # Skip processing signals from single timeframe
+
+            # Check for reversals specifically (even without multi-timeframe)
+            reversals = self.strategy.detect_timeframe_reversals(
+                self.historical_data)
+            if reversals['direction'] != 'NEUTRAL' and reversals['strength'] >= 8:
+                logger.info(
+                    f"Strong {reversals['direction']} reversal detected with strength {reversals['strength']}")
+
+                # Create a trading signal based on the reversal
+                signal = {
+                    'signal_type': 'BUY' if reversals['direction'] == 'BULLISH' else 'SELL',
+                    'price': self.current_price,
+                    'strength': reversals['strength'],
+                    'reason': f"Strong {reversals['direction']} reversal detected",
+                    'reversal_details': reversals[f"{reversals['direction'].lower()}_reversals"]
+                }
+
+                # Process the reversal signal
+                self._process_trading_signal(signal)
+
+            # Process normal signals from single timeframe analysis
             for signal in analysis['signals']:
                 self._process_trading_signal(signal)
 
@@ -257,7 +313,7 @@ class MacdTradingBot:
 
             # Calculate take profit level (only tp1)
             take_profit = {
-                'tp1': entry_price * 1.04 if signal['signal_type'] == 'BUY' else entry_price * 0.96,
+                'tp1': entry_price * 1.03 if signal['signal_type'] == 'BUY' else entry_price * 0.97,
             }
 
             # Calculate position size based on risk
@@ -319,8 +375,8 @@ class MacdTradingBot:
             time_params = self.time_sync.get_timestamp_with_recvwindow()
 
             # Calculate and adjust quantity precision
-            quantity = self._adjust_quantity_precision(
-                order['position_size'] / order['entry_price'])
+            quantity = adjust_precision(
+                order['position_size'] / order['entry_price'], self.symbol_precision['quantityPrecision'])
 
             if quantity != 0:
                 # Determine order type and parameters
@@ -524,24 +580,72 @@ class MacdTradingBot:
 
         self.telegram.send_message(signal_info)
 
-    def _fetch_initial_data(self):
-        """Fetch initial historical data"""
+    def _fetch_higher_timeframe_data(self):
+        """Fetch higher timeframe data for multi-timeframe analysis"""
         logger.info(
-            f"Fetching initial historical data for {self.symbol} {self.interval}")
+            f"Fetching higher timeframe data ({self.higher_timeframe}) for {self.symbol}")
 
         try:
-            # Calculate start time based on window size
+            # Calculate start time for higher timeframe
+            htf_interval_seconds = self._get_interval_seconds(
+                self.higher_timeframe)
+            start_time = datetime.now() - timedelta(
+                seconds=htf_interval_seconds * (self.window_size + 5))
+
+            # Fetch data
+            self.htf_data = self.data_fetcher.get_historical_klines(
+                symbol=self.symbol,
+                interval=self.higher_timeframe,
+                start_time=start_time,
+            )
+
+            logger.info(
+                f"Fetched {len(self.htf_data)} higher timeframe candles")
+
+            return self.htf_data
+        except Exception as e:
+            error_msg = f"Error fetching higher timeframe data: {str(e)}"
+            logger.error(error_msg)
+            if self.telegram:
+                self.telegram.send_message(error_msg)
+            return pd.DataFrame()
+
+    def _get_current_candle_time(self, interval):
+        """Get the timestamp of the current candle for a given interval"""
+        now = datetime.now()
+
+        if interval.endswith('m'):
+            mins = int(interval[:-1])
+            return now.replace(second=0, microsecond=0) - timedelta(minutes=now.minute % mins)
+        elif interval.endswith('h'):
+            hours = int(interval[:-1])
+            return now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=now.hour % hours)
+        elif interval.endswith('d'):
+            return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        return now
+
+    def _fetch_initial_data(self):
+        """Fetch initial historical data for all timeframes"""
+        logger.info(f"Fetching initial data for {self.symbol}")
+
+        try:
+            # Fetch data for current timeframe
             start_time = datetime.now() - timedelta(
                 seconds=self.analysis_interval_seconds * (self.window_size + 10))
 
-            # Fetch data
             self.historical_data = self.data_fetcher.get_historical_klines(
                 symbol=self.symbol,
                 interval=self.interval,
                 start_time=start_time,
             )
 
-            logger.info(f"Fetched {len(self.historical_data)} initial candles")
+            logger.info(
+                f"Fetched {len(self.historical_data)} {self.interval} candles")
+
+            # Fetch higher timeframe data if multi-timeframe is enabled
+            if self.use_multi_timeframe:
+                self._fetch_higher_timeframe_data()
 
             # Set current price
             if not self.historical_data.empty:
@@ -550,7 +654,8 @@ class MacdTradingBot:
         except Exception as e:
             error_msg = f"Error fetching initial data: {str(e)}"
             logger.error(error_msg)
-            self.telegram.send_message(error_msg)
+            if self.telegram:
+                self.telegram.send_message(error_msg)
             raise
 
     def start(self):
@@ -567,8 +672,8 @@ class MacdTradingBot:
             self._fetch_initial_data()
 
             # Start order status checking thread
-            self.status_thread = threading.Thread(
-                target=self._status_check_loop)
+            # self.status_thread = threading.Thread(
+            #     target=self._status_check_loop)
             self.status_thread.daemon = True
             self.status_thread.start()
 
@@ -596,18 +701,6 @@ class MacdTradingBot:
             if self.telegram:
                 self.telegram.send_message(error_msg)
             self.stop()
-
-    def _status_check_loop(self):
-        """Continuously check order status"""
-        while self.running:
-            try:
-                print("Checking order status")
-                time.sleep(60 * 5)  # Check every 3 minutes
-            except Exception as e:
-                error_msg = f"Error in status check loop: {str(e)}"
-                logger.error(error_msg)
-                self.telegram.send_message(error_msg)
-                time.sleep(30)
 
     def _update_capital(self):
         """Update capital based on current USDT balance"""

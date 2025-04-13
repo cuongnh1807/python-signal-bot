@@ -280,10 +280,10 @@ class FuturesStrategy:
 
         ob_height = ob_top - ob_bottom
 
-        volume_factor = min(1.2, 0.5 + (volume_ratio / 10))
-        if volume_ratio >= 5:
+        volume_factor = min(1, 0.5 + (volume_ratio / 10))
+        if volume_ratio >= 6:
             buffer_pct = 0.5 * volume_factor
-        elif volume_ratio >= 2.3:
+        elif volume_ratio >= 3:
             buffer_pct = 0.3 * volume_factor
         else:
             buffer_pct = 0.2 * volume_factor

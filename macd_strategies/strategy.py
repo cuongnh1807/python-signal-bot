@@ -1061,21 +1061,7 @@ class MacdRsiStrategy:
 
         # Get important indicators
         current_price = df['close'].iloc[-1]
-        delta = df['close'].diff()
-        delta = delta.fillna(0)  # Fill NaN values to avoid calculation errors
-
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-
-        # Use simple calculation for first periods to avoid NaN values
-        avg_gain = gain.rolling(window=self.rsi_period, min_periods=1).mean()
-        avg_loss = loss.rolling(window=self.rsi_period, min_periods=1).mean()
-
-        # Avoid division by zero
-        avg_loss = avg_loss.replace(0, 0.000001)
-
-        rs = avg_gain / avg_loss
-        df['rsi'] = 100 - (100 / (1 + rs))
+        df = self._calculate_indicators(df)
         rsi = df['rsi'].iloc[-1]
 
         # 1. Check for oversold/overbought conditions with RSI

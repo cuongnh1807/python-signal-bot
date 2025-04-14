@@ -66,6 +66,7 @@ class MacdRsiStrategy:
 
         # Calculate indicators
         df = self._calculate_indicators(data)
+        print("adx", df['adx'].iloc[-1])
 
         # Analyze market structure and trend
         market_structure = self._analyze_market_structure(df)
@@ -132,99 +133,125 @@ class MacdRsiStrategy:
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate comprehensive technical indicators"""
         df = df.copy()
+        print("close", df['close'].iloc[-1])
 
         # RSI calculation - fixed implementation
         delta = df['close'].diff()
-
-        delta = delta.fillna(0)
+        delta = delta.fillna(0)  # Fill NaN values to avoid calculation errors
 
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)
 
-        avg_gain = gain.rolling(window=self.rsi_period).mean()
-        avg_loss = loss.rolling(window=self.rsi_period).mean()
+        # Use simple calculation for first periods to avoid NaN values
+        avg_gain = gain.rolling(window=self.rsi_period, min_periods=1).mean()
+        avg_loss = loss.rolling(window=self.rsi_period, min_periods=1).mean()
 
+        # Avoid division by zero
         avg_loss = avg_loss.replace(0, 0.000001)
 
         rs = avg_gain / avg_loss
         df['rsi'] = 100 - (100 / (1 + rs))
 
-        ema_fast = df['close'].ewm(span=self.macd_fast, adjust=False).mean()
-        ema_slow = df['close'].ewm(span=self.macd_slow, adjust=False).mean()
+        # MACD calculation
+        ema_fast = df['close'].ewm(
+            span=self.macd_fast, adjust=False, min_periods=1).mean()
+        ema_slow = df['close'].ewm(
+            span=self.macd_slow, adjust=False, min_periods=1).mean()
         df['macd'] = ema_fast - ema_slow
         df['macd_signal'] = df['macd'].ewm(
-            span=self.macd_signal, adjust=False).mean()
+            span=self.macd_signal, adjust=False, min_periods=1).mean()
         df['macd_hist'] = df['macd'] - df['macd_signal']
 
-        # EMA calculations - more comprehensive EMAs
-        df['ema8'] = df['close'].ewm(span=8, adjust=False).mean()
-        df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
-        df['ema34'] = df['close'].ewm(span=self.ema_short, adjust=False).mean()
-        df['ema89'] = df['close'].ewm(span=self.ema_long, adjust=False).mean()
-        df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
+        # EMA calculations with min_periods to avoid NaN
+        df['ema8'] = df['close'].ewm(
+            span=8, adjust=False, min_periods=1).mean()
+        df['ema21'] = df['close'].ewm(
+            span=21, adjust=False, min_periods=1).mean()
+        df['ema34'] = df['close'].ewm(
+            span=self.ema_short, adjust=False, min_periods=1).mean()
+        df['ema89'] = df['close'].ewm(
+            span=self.ema_long, adjust=False, min_periods=1).mean()
+        df['ema200'] = df['close'].ewm(
+            span=200, adjust=False, min_periods=1).mean()
 
-    # Volume indicators
+        # Volume indicators
         df['volume_ma'] = df['volume'].rolling(
-            window=self.volume_ma_period).mean()
+            window=self.volume_ma_period, min_periods=1).mean()
+        # Handle potential division by zero
+        df['volume_ma'] = df['volume_ma'].replace(0, 0.000001)
         df['volume_ratio'] = df['volume'] / df['volume_ma']
 
-     # On-Balance Volume (OBV) for volume confirmation
-        obv = 0
+        # On-Balance Volume (OBV) calculation
         df['obv'] = 0
+        obv = 0
         for i in range(1, len(df)):
             if df['close'].iloc[i] > df['close'].iloc[i-1]:
                 obv += df['volume'].iloc[i]
             elif df['close'].iloc[i] < df['close'].iloc[i-1]:
                 obv -= df['volume'].iloc[i]
-            df.loc[i, "obv"] = obv
+            df.loc[df.index[i], 'obv'] = obv  # Use index for safer assignment
 
-        # Bollinger Bands
-        df['bb_middle'] = df['close'].rolling(window=20).mean()
-        bb_std = df['close'].rolling(window=20).std()
+        # Bollinger Bands with min_periods to avoid NaN values
+        df['bb_middle'] = df['close'].rolling(window=20, min_periods=1).mean()
+        bb_std = df['close'].rolling(window=20, min_periods=1).std().fillna(0)
         df['bb_upper'] = df['bb_middle'] + (bb_std * 2)
         df['bb_lower'] = df['bb_middle'] - (bb_std * 2)
+        # Avoid division by zero
+        df['bb_middle'] = df['bb_middle'].replace(0, 0.000001)
         df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
 
         # Average True Range (ATR) for volatility
         high_low = df['high'] - df['low']
-        high_close = abs(df['high'] - df['close'].shift())
-        low_close = abs(df['low'] - df['close'].shift())
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+        high_close = abs(df['high'] - df['close'].shift().fillna(df['open']))
+        low_close = abs(df['low'] - df['close'].shift().fillna(df['open']))
+
+        # Fix potential NaN issues in ranges calculation
+        ranges = pd.concat([high_low, high_close, low_close], axis=1).fillna(0)
         true_range = ranges.max(axis=1)
-        df['atr'] = true_range.rolling(window=14).mean()
+        df['atr'] = true_range.rolling(window=14, min_periods=1).mean()
 
-        # Stochastic Oscillator for momentum
-        lowest_low = df['low'].rolling(window=14).min()
-        highest_high = df['high'].rolling(window=14).max()
-        df['stoch_k'] = 100 * \
-            ((df['close'] - lowest_low) / (highest_high - lowest_low))
-        df['stoch_d'] = df['stoch_k'].rolling(window=3).mean()
+        # Stochastic Oscillator with error handling
+        lowest_low = df['low'].rolling(window=14, min_periods=1).min()
+        highest_high = df['high'].rolling(window=14, min_periods=1).max()
+        # Avoid division by zero
+        height_diff = (highest_high - lowest_low).replace(0, 0.000001)
+        df['stoch_k'] = 100 * ((df['close'] - lowest_low) / height_diff)
+        df['stoch_d'] = df['stoch_k'].rolling(window=3, min_periods=1).mean()
 
-        # Rate of Change (ROC) for momentum
-        df['roc'] = df['close'].pct_change(periods=10) * 100
+        # Rate of Change (ROC) with NaN handling
+        df['roc'] = df['close'].pct_change(periods=10).fillna(0) * 100
 
-        # Directional Movement Index (DMI) components for trend strength
-        plus_dm = df['high'].diff()
-        minus_dm = df['low'].diff(-1).abs()
-        plus_dm[plus_dm < 0] = 0
-        minus_dm[minus_dm < 0] = 0
-        tr = true_range  # We already calculated true range above
+        # Directional Movement Index (DMI) with NaN handling
+        plus_dm = df['high'].diff().fillna(0)
+        minus_dm = df['low'].diff(-1).abs().fillna(0)
+        plus_dm = plus_dm.mask(plus_dm < 0, 0)
+        minus_dm = minus_dm.mask(minus_dm < 0, 0)
 
-        plus_di = 100 * (plus_dm.rolling(window=14).sum() /
-                         tr.rolling(window=14).sum())
-        minus_di = 100 * (minus_dm.rolling(window=14).sum() /
-                          tr.rolling(window=14).sum())
+        tr_sum = true_range.rolling(
+            window=14, min_periods=1).sum().replace(0, 0.000001)
+        plus_di = 100 * (plus_dm.rolling(window=14,
+                         min_periods=1).sum() / tr_sum)
+        minus_di = 100 * (minus_dm.rolling(window=14,
+                          min_periods=1).sum() / tr_sum)
+
         df['plus_di'] = plus_di
         df['minus_di'] = minus_di
-        df['adx'] = (abs(plus_di - minus_di) / (plus_di + minus_di)
-                     * 100).rolling(window=14).mean()
 
-        return df
+        # Calculate ADX with error handling
+        di_sum = (plus_di + minus_di).replace(0, 0.000001)
+        df['adx'] = (abs(plus_di - minus_di) / di_sum *
+                     100).rolling(window=14, min_periods=1).mean()
+
+        # Fill remaining NaN values with 0 to ensure clean data
+        df = df.fillna(0)
+
+        return df  # Make sure to return the DataFrame
 
     def _analyze_market_structure(self, df: pd.DataFrame) -> Dict:
         """Analyze overall market structure and trend"""
         # Get current price and EMAs
         current_price = df['close'].iloc[-1]
+        print("current_price", current_price)
         ema8 = df['ema8'].iloc[-1]
         ema21 = df['ema21'].iloc[-1]
         ema34 = df['ema34'].iloc[-1]

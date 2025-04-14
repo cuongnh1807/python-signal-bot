@@ -179,42 +179,6 @@ class MacdTradingBot:
                 self.telegram.send_message(error_msg)
             return 1000.0
 
-    def _process_kline_message(self, msg):
-        """Process kline message from WebSocket"""
-        try:
-            if 'k' in msg:
-                kline = msg['k']
-                is_candle_closed = kline['x']
-
-                if not is_candle_closed:
-                    self.current_price = float(kline['c'])
-                    return
-
-                # Extract candle data
-                timestamp = datetime.fromtimestamp(kline['t'] / 1000)
-                new_candle = pd.DataFrame({
-                    'open': [float(kline['o'])],
-                    'high': [float(kline['h'])],
-                    'low': [float(kline['l'])],
-                    'close': [float(kline['c'])],
-                    'volume': [float(kline['v'])]
-                }, index=[timestamp])
-
-                # Update historical data
-                self.historical_data = pd.concat(
-                    [self.historical_data, new_candle])
-
-                if len(self.historical_data) > self.window_size + 10:
-                    self.historical_data = self.historical_data.iloc[-(
-                        self.window_size + 10):]
-
-                self.current_price = float(kline['c'])
-                logger.info(
-                    f"New candle closed: {timestamp}, Close: {self.current_price}")
-
-                # Run analysis on new candle
-                self._run_analysis()
-
         except Exception as e:
             error_msg = f"Error processing kline message: {str(e)}"
             logger.error(error_msg)
@@ -224,64 +188,61 @@ class MacdTradingBot:
     def _run_analysis(self):
         """Run strategy analysis with multi-timeframe support"""
         try:
+
+            if len(self.historical_data) < self.window_size:
+                logger.warning(
+                    f"Not enough data for analysis. Have {len(self.historical_data)}, need {self.window_size}")
+                return
+
+            # Basic single-timeframe analysis
             analysis = self.strategy.analyze_market(self.historical_data)
 
-            # if len(self.historical_data) < self.window_size:
-            #     logger.warning(
-            #         f"Not enough data for analysis. Have {len(self.historical_data)}, need {self.window_size}")
-            #     return
+            # Multi-timeframe analysis if enabled
+            mtf_analysis = None
+            if self.use_multi_timeframe:
+                # Fetch higher timeframe data if needed
+                if len(self.htf_data) < self.window_size:
+                    self._fetch_higher_timeframe_data()
+                else:
+                    # Update the last candle of HTF data if needed
+                    current_htf_time = self._get_current_candle_time(
+                        self.higher_timeframe)
+                    if len(self.htf_data) > 0 and self.htf_data.index[-1] < current_htf_time:
+                        self._fetch_higher_timeframe_data()
 
-            # # Basic single-timeframe analysis
-            # analysis = self.strategy.analyze_market(self.historical_data)
+                # Run multi-timeframe analysis if we have data for both timeframes
+                if len(self.htf_data) >= self.window_size:
+                    data_dict = {
+                        self.lower_timeframe: self.historical_data,
+                        self.higher_timeframe: self.htf_data
+                    }
+                    mtf_analysis = self.strategy.analyze_multi_timeframe(
+                        data_dict)
+                    # Use best entries from multi-timeframe analysis if available
+                    if mtf_analysis and mtf_analysis.get('best_entries'):
+                        for entry in mtf_analysis['best_entries']:
+                            self._process_trading_signal(entry)
+                        return  # Skip processing signals from single timeframe
 
-            # # Multi-timeframe analysis if enabled
-            # mtf_analysis = None
-            # if self.use_multi_timeframe:
-            #     # Fetch higher timeframe data if needed
-            #     if len(self.htf_data) < self.window_size:
-            #         self._fetch_higher_timeframe_data()
-            #     else:
-            #         # Update the last candle of HTF data if needed
-            #         current_htf_time = self._get_current_candle_time(
-            #             self.higher_timeframe)
-            #         if len(self.htf_data) > 0 and self.htf_data.index[-1] < current_htf_time:
-            #             self._fetch_higher_timeframe_data()
+            # Check for reversals specifically (even without multi-timeframe)
+            reversals = self.strategy.detect_timeframe_reversals(
+                self.historical_data)
+            if reversals['direction'] != 'NEUTRAL' and reversals['strength'] >= 8:
+                logger.info(
+                    f"Strong {reversals['direction']} reversal detected with strength {reversals['strength']}")
 
-            #     # Run multi-timeframe analysis if we have data for both timeframes
-            #     if len(self.htf_data) >= self.window_size:
-            #         data_dict = {
-            #             self.lower_timeframe: self.historical_data,
-            #             self.higher_timeframe: self.htf_data
-            #         }
-            #         mtf_analysis = self.strategy.analyze_multi_timeframe(
-            #             data_dict)
+                # Create a trading signal based on the reversal
+                signal = {
+                    'signal_type': 'BUY' if reversals['direction'] == 'BULLISH' else 'SELL',
+                    'price': self.current_price,
+                    'strength': reversals['strength'],
+                    'reason': f"Strong {reversals['direction']} reversal detected",
+                    'reversal_details': reversals[f"{reversals['direction'].lower()}_reversals"]
+                }
 
-            #         # Use best entries from multi-timeframe analysis if available
-            #         if mtf_analysis and mtf_analysis.get('best_entries'):
-            #             for entry in mtf_analysis['best_entries']:
-            #                 self._process_trading_signal(entry)
-            #             return  # Skip processing signals from single timeframe
+                # Process the reversal signal
+                self._process_trading_signal(signal)
 
-            # # Check for reversals specifically (even without multi-timeframe)
-            # reversals = self.strategy.detect_timeframe_reversals(
-            #     self.historical_data)
-            # if reversals['direction'] != 'NEUTRAL' and reversals['strength'] >= 8:
-            #     logger.info(
-            #         f"Strong {reversals['direction']} reversal detected with strength {reversals['strength']}")
-
-            #     # Create a trading signal based on the reversal
-            #     signal = {
-            #         'signal_type': 'BUY' if reversals['direction'] == 'BULLISH' else 'SELL',
-            #         'price': self.current_price,
-            #         'strength': reversals['strength'],
-            #         'reason': f"Strong {reversals['direction']} reversal detected",
-            #         'reversal_details': reversals[f"{reversals['direction'].lower()}_reversals"]
-            #     }
-
-            #     # Process the reversal signal
-            #     self._process_trading_signal(signal)
-
-            # Process normal signals from single timeframe analysis
             for signal in analysis['signals']:
                 self._process_trading_signal(signal)
 
@@ -731,27 +692,27 @@ class MacdTradingBot:
                 current_minute = now.minute
 
                 # Check if current minute is divisible by 3 (0,3,6,9,12,15,18,21,...57)
-                if current_minute % 5 == 0:
-                    logger.info(f"Running analysis at minute {current_minute}")
+                # if current_minute % 5 == 0:
+                logger.info(f"Running analysis at minute {current_minute}")
 
-                    # Fetch newest data
-                    self._fetch_latest_data()
+                # Fetch newest data
+                self._fetch_latest_data()
 
-                    # Run analysis
-                    self._run_analysis()
+                # Run analysis
+                self._run_analysis()
 
-                    # Sleep for 3 minutes to avoid multiple runs in the same minute
-                    time.sleep(180)  # 3 minutes = 180 seconds
-                else:
-                    # Calculate time until next 3-minute interval
-                    minutes_to_next = 3 - (current_minute % 3)
-                    seconds_to_next = minutes_to_next * 60 - now.second
+                # Sleep for 3 minutes to avoid multiple runs in the same minute
+                time.sleep(180)  # 3 minutes = 180 seconds
+                # else:
+                #     # Calculate time until next 3-minute interval
+                #     minutes_to_next = 3 - (current_minute % 3)
+                #     seconds_to_next = minutes_to_next * 60 - now.second
 
-                    # Add a small buffer
-                    seconds_to_next += 2
+                #     # Add a small buffer
+                #     seconds_to_next += 2
 
-                    logger.info(f"Next analysis in {seconds_to_next} seconds")
-                    time.sleep(seconds_to_next)
+                #     logger.info(f"Next analysis in {seconds_to_next} seconds")
+                #     time.sleep(seconds_to_next)
 
             except Exception as e:
                 error_msg = f"Error in cronjob analysis loop: {str(e)}"

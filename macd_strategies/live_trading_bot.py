@@ -42,7 +42,6 @@ class MacdTradingBot:
                  min_volume_ratio: float = 3.0,
                  max_distance_to_current_price: float = 5.0,
                  test_mode: bool = True,
-                 telegram: Optional[object] = None,
                  time_synchronizer=None,
                  symbol_precision: Dict = None):
         """

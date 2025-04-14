@@ -66,7 +66,6 @@ class MacdRsiStrategy:
 
         # Calculate indicators
         df = self._calculate_indicators(data)
-        print("adx", df['adx'].iloc[-1])
 
         # Analyze market structure and trend
         market_structure = self._analyze_market_structure(df)
@@ -133,7 +132,6 @@ class MacdRsiStrategy:
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate comprehensive technical indicators"""
         df = df.copy()
-        print("close", df['close'].iloc[-1])
 
         # RSI calculation - fixed implementation
         delta = df['close'].diff()
@@ -1063,10 +1061,22 @@ class MacdRsiStrategy:
 
         # Get important indicators
         current_price = df['close'].iloc[-1]
-        if 'rsi' in df.columns:
-            rsi = df['rsi'].iloc[-1]
-        else:
-            rsi = calculate_rsi(df, self.rsi_period).iloc[-1]
+        delta = df['close'].diff()
+        delta = delta.fillna(0)  # Fill NaN values to avoid calculation errors
+
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+
+        # Use simple calculation for first periods to avoid NaN values
+        avg_gain = gain.rolling(window=self.rsi_period, min_periods=1).mean()
+        avg_loss = loss.rolling(window=self.rsi_period, min_periods=1).mean()
+
+        # Avoid division by zero
+        avg_loss = avg_loss.replace(0, 0.000001)
+
+        rs = avg_gain / avg_loss
+        df['rsi'] = 100 - (100 / (1 + rs))
+        rsi = df['rsi'].iloc[-1]
 
         # 1. Check for oversold/overbought conditions with RSI
         if rsi is not None:

@@ -692,27 +692,27 @@ class MacdTradingBot:
                 current_minute = now.minute
 
                 # Check if current minute is divisible by 3 (0,3,6,9,12,15,18,21,...57)
-                # if current_minute % 5 == 0:
-                logger.info(f"Running analysis at minute {current_minute}")
+                if current_minute % 5 == 0:
+                    logger.info(f"Running analysis at minute {current_minute}")
 
                 # Fetch newest data
-                self._fetch_latest_data()
+                    self._fetch_latest_data()
 
                 # Run analysis
-                self._run_analysis()
+                    self._run_analysis()
 
                 # Sleep for 3 minutes to avoid multiple runs in the same minute
-                time.sleep(180)  # 3 minutes = 180 seconds
-                # else:
-                #     # Calculate time until next 3-minute interval
-                #     minutes_to_next = 3 - (current_minute % 3)
-                #     seconds_to_next = minutes_to_next * 60 - now.second
+                    time.sleep(180)  # 3 minutes = 180 seconds
+                else:
+                    # Calculate time until next 3-minute interval
+                    minutes_to_next = 3 - (current_minute % 3)
+                    seconds_to_next = minutes_to_next * 60 - now.second
 
-                #     # Add a small buffer
-                #     seconds_to_next += 2
+                    # Add a small buffer
+                    seconds_to_next += 2
 
-                #     logger.info(f"Next analysis in {seconds_to_next} seconds")
-                #     time.sleep(seconds_to_next)
+                    logger.info(f"Next analysis in {seconds_to_next} seconds")
+                    time.sleep(seconds_to_next)
 
             except Exception as e:
                 error_msg = f"Error in cronjob analysis loop: {str(e)}"

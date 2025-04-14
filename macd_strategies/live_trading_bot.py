@@ -43,6 +43,7 @@ class MacdTradingBot:
                  max_distance_to_current_price: float = 5.0,
                  test_mode: bool = True,
                  time_synchronizer=None,
+                 telegram=None,
                  symbol_precision: Dict = None):
         """
         Initialize the MACD-RSI trading bot.

@@ -124,8 +124,8 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
             "setup_quality": 0,
             "final_score": 0,
             "threshold": 75,
-            "warnings": warnings,
-            "reversal_score": reversal_score
+            "warnings": ["OB strength is too weak"],
+            "reversal_score": 0
         }
     reversal_score = 0
     warnings = []

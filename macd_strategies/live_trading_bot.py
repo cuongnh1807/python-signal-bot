@@ -268,7 +268,7 @@ class MacdTradingBot:
 
             # Calculate stop loss (2% from entry)
             stop_loss = entry_price * \
-                0.985 if signal['signal_type'] == 'BUY' else entry_price * 1.015
+                0.99 if signal['signal_type'] == 'BUY' else entry_price * 1.01
 
             # Calculate take profit level (only tp1)
             take_profit = {

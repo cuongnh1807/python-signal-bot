@@ -286,11 +286,11 @@ class FuturesStrategy:
         elif volume_ratio >= 3:
             buffer_pct = 0.3 * volume_factor
         else:
-            buffer_pct = 0.2 * volume_factor
+            buffer_pct = 0.15 * volume_factor
 
         buffer = ob_height * buffer_pct
 
-        min_distance = entry_price * 0.01 * volume_factor
+        min_distance = entry_price * 0.012 * volume_factor
 
         if volatility:
             min_distance = max(min_distance, volatility * volume_factor)

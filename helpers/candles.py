@@ -83,7 +83,7 @@ def is_doji(candle, body_ratio=0.1):
     return body < body_ratio * range_
 
 
-def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_keep_ob: bool = True, analysis: Dict = None) -> Tuple[bool, Dict]:
+def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_keep_ob: bool = True, analysis: Dict = None, strength_threshold: int = 70) -> Tuple[bool, Dict]:
     """
     Optimized function to evaluate order blocks, balancing strictness and flexibility to reduce missed opportunities.
 
@@ -119,7 +119,14 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     prev_candle = df.iloc[current_index - 1] if current_index > 0 else None
     pin_bar = is_pin_bar(current_candle)
     engulfing = is_engulfing(prev_candle, current_candle)
-
+    if ob['strength'] < strength_threshold:
+        return False, {
+            "setup_quality": 0,
+            "final_score": 0,
+            "threshold": 75,
+            "warnings": warnings,
+            "reversal_score": reversal_score
+        }
     reversal_score = 0
     warnings = []
     lookback = min(3, current_index)

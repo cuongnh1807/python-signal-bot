@@ -614,7 +614,7 @@ class MacdRsiStrategy:
             sell_reasons.append("Overbought in bearish trend")
 
         # Threshold for generating signals
-        threshold = 8  # Higher threshold for more stringent requirements
+        threshold = 8.5  # Higher threshold for more stringent requirements
 
         # Create signals if score exceeds threshold
         if buy_score > threshold:

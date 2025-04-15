@@ -305,7 +305,7 @@ class MacdTradingBot:
             # Place order
             if not self.test_mode:
                 self._place_order_on_exchange(order)
-                self._print_order_info(order, "TEST")
+                self._print_order_info(order, "PROD")
 
             else:
                 logger.info(f"TEST MODE: Would place order: {order}")
@@ -511,10 +511,10 @@ class MacdTradingBot:
             f"Position Size: {order['position_size']}\n"
             f"Leverage: {order['leverage']}x\n"
             f"Setup Quality: {order.get('strength', 0)}\n"
+            f"Reason: {order.get('reason', 'N/A')}\n"
             f"{'='*50}\n"
         )
 
-        print(order_info)
         logger.info(order_info)
         if status != "TEST":
             self.telegram.send_message(order_info, topic_id=os.getenv(
@@ -538,8 +538,7 @@ class MacdTradingBot:
             f"{'='*50}\n"
         )
 
-        self.telegram.send_message(signal_info, topic_id=os.getenv(
-            'TELEGRAM_SIGNALS_TOPIC_ID'))
+        self.telegram.send_message(signal_info)
 
     def _fetch_higher_timeframe_data(self):
         """Fetch higher timeframe data for multi-timeframe analysis"""

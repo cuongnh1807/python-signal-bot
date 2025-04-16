@@ -271,24 +271,6 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     except KeyError:
         pass  # Skip if MACD data is unavailable
 
-    # Calculate Volume Score with Pressure
-    volume_score = analysis['volume_analysis']['volume_score']
-    pressure_type = analysis['pressure']['type']
-    if (ob_direction == 1 and "Buying" in pressure_type) or (ob_direction == -1 and "Selling" in pressure_type):
-        if "Strong" in pressure_type:
-            # Boost for strong pressure
-            volume_score = min(100, volume_score + 20)
-        elif "Moderate" in pressure_type:
-            # Boost for moderate pressure
-            volume_score = min(100, volume_score + 10)
-    else:
-        if "Strong" in pressure_type:
-            # Penalty for strong opposite pressure
-            volume_score = max(0, volume_score - 40)
-        elif "Moderate" in pressure_type:
-            # Penalty for moderate opposite pressure
-            volume_score = max(0, volume_score - 20)
-
     # Compute Final Score with Weights
     weights = {'price_action': 0.4, 'momentum': 0.3, 'volume': 0.3}
     # print()
@@ -300,7 +282,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
 
     # Set Adaptive Threshold
     base_threshold = 40
-    threshold = min(70, base_threshold + reversal_score * 0.5)
+    threshold = min(75, base_threshold + reversal_score * 0.6)
 
     # Determine if OB should be kept
     setup_quality = final_score
@@ -320,7 +302,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         "scores": {
             "price_action": price_action_score,
             "momentum": momentum_score,
-            "volume": volume_score
+            "volume": ob['strength']
         },
         "strength": setup_strength,
         "entry_quality": entry_quality,
@@ -331,7 +313,8 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
 
     # Debug Output
     if keep_ob:
-        print(f"✅ KEEPING {ob_direction_str} OB: Score: {final_score:.1f} - Price: {price_action_score:.1f}, Momentum: {momentum_score:.1f}, Volume: {volume_score:.1f}, Threshold: {threshold:.1f}")
+        print(
+            f"✅ KEEPING {ob_direction_str} OB: Score: {final_score:.1f} - Price: {price_action_score:.1f}, Momentum: {momentum_score:.1f}, Volume: {ob['strength']:.1f}, Threshold: {threshold:.1f}")
     else:
         print(
             f"🔴 REJECTING {ob_direction_str} OB: Score {final_score:.1f} < {threshold:.1f}")

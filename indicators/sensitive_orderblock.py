@@ -296,10 +296,10 @@ def calculate_ob_strength(df, idx, direction, historical_obs, has_volume):
         vol = df.at[idx, 'volume']
         vol_ma = df.at[idx, 'volume_ma']
         volume_ratio = vol / vol_ma if vol_ma > 0 else 1
-        volume_strength = min(volume_ratio * 40, 40)
+        volume_strength = min(volume_ratio * 40, 60)
 
-    # 2. Calculate height strength (35% of score)
-    height_strength = min(height_ratio * 35, 35)
+    # 2. Calculate height strength (20% of score)
+    height_strength = min(height_ratio * 20, 20)
 
     # 3. Calculate historical presence strength (25% of score)
     historical_count = 0
@@ -323,7 +323,7 @@ def calculate_ob_strength(df, idx, direction, historical_obs, has_volume):
         # Reduced importance if too many recent OBs
         historical_strength = max(5, 15 - (recent_count - 2) * 5)
     else:
-        historical_strength = min(historical_count * 4, 25)
+        historical_strength = min(historical_count * 4, 20)
 
     # Calculate total strength
     total_strength = int(

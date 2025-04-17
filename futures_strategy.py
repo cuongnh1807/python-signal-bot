@@ -229,11 +229,11 @@ class FuturesStrategy:
 
         # Adjust entry aggression based on volume ratio and setup quality
         # Higher volume = more confident in the level = more aggressive entry
-        if volume_ratio >= 6 and setup_quality >= 85:
+        if volume_ratio >= 7 and setup_quality >= 85:
             aggression = 0.9  # Very aggressive for high volume & quality
-        elif volume_ratio >= 4 or setup_quality >= 75:
+        elif volume_ratio >= 5 or setup_quality >= 75:
             aggression = 0.75  # Aggressive for good volume or quality
-        elif volume_ratio >= 2.5 or setup_quality >= 60:
+        elif volume_ratio >= 3 or setup_quality >= 60:
             aggression = 0.5  # Moderate for decent volume or quality
         else:
             aggression = 0.3  # Conservative for low volume and quality
@@ -262,7 +262,7 @@ class FuturesStrategy:
                 entries['selected'] = max(ob_bottom, current_price - buffer)
         else:  # SHORT
             # Select entry based on aggression level with volatility adjustment
-            entries['selected'] = ob_top - (ob_height * aggression)
+            entries['selected'] = ob_top - (ob_height * 0.3)
 
             # Safety check - if current price is above any entry, adjust to just above current price
             if current_price > entries['selected']:
@@ -280,7 +280,7 @@ class FuturesStrategy:
 
         ob_height = ob_top - ob_bottom
 
-        volume_factor = min(1, 0.5 + (volume_ratio / 10))
+        volume_factor = min(1.5, 0.5 + (volume_ratio / 10))
         if volume_ratio >= 6:
             buffer_pct = 0.5 * volume_factor
         elif volume_ratio >= 3:
@@ -290,7 +290,7 @@ class FuturesStrategy:
 
         buffer = ob_height * buffer_pct
 
-        min_distance = entry_price * 0.012 * volume_factor
+        min_distance = entry_price * 0.01 * volume_factor
 
         if volatility:
             min_distance = max(min_distance, volatility * volume_factor)

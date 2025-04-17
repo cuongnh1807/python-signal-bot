@@ -403,7 +403,7 @@ if __name__ == "__main__":
     fetchData = BinanceDataFetcher(client)
     start_time = datetime.now() - timedelta(days=args.days)
     rawData = client.get_historical_klines(
-        args.symbol, interval=args.interval, start_str=int(start_time.timestamp() * 1000), end_str=int((datetime.now() - timedelta(minutes=90)).timestamp() * 1000))
+        args.symbol, interval=args.interval, start_str=int(start_time.timestamp() * 1000), end_str=int((datetime.now() - timedelta(minutes=180)).timestamp() * 1000))
     data = pd.DataFrame(rawData, columns=[
         'timestamp', 'open', 'high', 'low', 'close', 'volume',
         'close_time', 'quote_volume', 'trades', 'taker_buy_base',

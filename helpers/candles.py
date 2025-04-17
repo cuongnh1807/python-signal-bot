@@ -129,7 +129,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         }
     reversal_score = 0
     warnings = []
-    lookback = min(3, current_index)
+    lookback = min(5, current_index)
     if lookback > 0:
         recent_candles = df.iloc[current_index - lookback:current_index + 1]
         for i in range(len(recent_candles)):
@@ -165,7 +165,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
                     reversal_score += 25
                 if hammer:
                     # Hammer (bullish reversal)
-                    reversal_score += 20
+                    reversal_score += 25
                 if morning_star:
                     # Morning Star (strong bullish reversal)
                     reversal_score += 30
@@ -279,7 +279,6 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         momentum_score * weights['momentum'] +
         ob['strength'] * weights['volume']
     )
-
     # Set Adaptive Threshold
     base_threshold = 40
     threshold = min(75, base_threshold + reversal_score * 0.6)

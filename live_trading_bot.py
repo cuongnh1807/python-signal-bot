@@ -154,9 +154,11 @@ class TelegramNotifier:
         # Calculate risk-reward for TP2
         risk = abs(entry_price - stop_loss)
         print("order: ", order)
-        tp2 = order['take_profit'].get('tp2', 0) if isinstance(
+        tp1 = order['take_profit'].get('tp1', 0) if isinstance(
             order.get('take_profit', {}), dict) else 0
-        rr = abs(tp2 - entry_price) / risk if risk > 0 else 0
+        # tp2 = order['take_profit'].get('tp2', 0) if isinstance(
+        #     order.get('take_profit', {}), dict) else 0
+        rr = abs(tp1 - entry_price) / risk if risk > 0 else 0
 
         message = (
             f"🔔 <b>New {side} Order Created</b>\n\n"
@@ -167,7 +169,7 @@ class TelegramNotifier:
             f"Entry: <b>${entry_price:.2f}</b>\n"
             f"Stop Loss: <b>${stop_loss:.2f}</b>\n"
             f"Risk-Reward (TP2): <b>{rr:.2f}</b>\n"
-            f"Take Profit : <b>${order['take_profit'].get('tp2', 0):.2f}</b>\n"
+            f"Take Profit : <b>${tp1:.2f}</b>\n"
             f"Volume Ratio: <b>{volume_ratio:.1f}x</b>\n"
             f"Position Size: <b>${position_size:.2f}</b> ({leverage}x)\n"
             f"Margin: <b>${margin:.2f}</b>"

@@ -129,7 +129,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         }
     reversal_score = 0
     warnings = []
-    lookback = min(12, current_index)
+    lookback = min(16, current_index)
     if lookback > 0:
         recent_candles = df.iloc[current_index - lookback:current_index + 1]
         for i in range(len(recent_candles)):

@@ -129,9 +129,9 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     warnings = []
     lookback = min(6, current_index)
     if analysis['trend_type'] == 'uptrend' or analysis['trend_type'] == 'downtrend':
-        lookback = min(12, current_index)
-    else:
         lookback = min(8, current_index)
+    else:
+        lookback = min(12, current_index)
 
     if lookback > 0:
         recent_candles = df.iloc[current_index - lookback:current_index + 1]

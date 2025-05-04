@@ -38,7 +38,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
 
     # Ensure DataFrame has integer index for calculations
 
-    analysis = detect_trend_from_ema(df, lookback=20)
+    analysis = detect_trend_from_ema(df, lookback=30)
     df = analysis['data']
     del analysis['data']
     df = df.reset_index(drop=True)

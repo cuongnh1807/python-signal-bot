@@ -225,3 +225,76 @@ def merge_overlapping_order_blocks(obs, threshold):
     merged.append(current)
 
     return merged
+
+
+def detect_trend_from_ema(data: pd.DataFrame, short_period: int = 34, long_period: int = 89, lookback: int = 10) -> dict:
+    """
+    Detect market trend based on EMA relationships.
+
+    Parameters:
+        data (pd.DataFrame): DataFrame with OHLCV data
+        short_period (int): Period for short-term EMA (default: 34)
+        long_period (int): Period for long-term EMA (default: 89)
+        lookback (int): Number of periods to look back for trend confirmation
+
+    Returns:
+        dict: Trend information including type, strength, and metrics
+    """
+    # Calculate EMAs
+    data['ema_short'] = data['close'].ewm(
+        span=short_period, adjust=False).mean()
+    data['ema_long'] = data['close'].ewm(span=long_period, adjust=False).mean()
+
+    # Calculate EMA difference and difference slope
+    data['ema_diff'] = data['ema_short'] - data['ema_long']
+    data['ema_diff_pct'] = data['ema_diff'] / data['ema_long'] * 100
+
+    # Get recent data for analysis
+    recent = data.tail(lookback)
+
+    # Count EMA crossovers in the lookback period
+    crossovers = sum((recent['ema_diff'].shift(1) * recent['ema_diff']) < 0)
+
+    # Calculate trend strength and direction
+    current_diff = data['ema_diff'].iloc[-1]
+    diff_slope = recent['ema_diff'].diff().mean()
+    diff_acceleration = recent['ema_diff'].diff().diff().mean()
+    # Determine trend type
+    if current_diff > 0:
+        if diff_slope > 0:
+            trend_type = "uptrend"
+            strength = abs(data['ema_diff_pct'].iloc[-1]) * \
+                (1 + diff_acceleration)
+        else:
+            trend_type = "consolidation"
+            strength = min(100, 30 + 30 * abs(data['ema_diff_pct'].iloc[-1]))
+    elif current_diff < 0:
+        if diff_slope < 0:
+            trend_type = "downtrend"
+            strength = abs(data['ema_diff_pct'].iloc[-1]) * \
+                (1 + abs(diff_acceleration))
+        else:
+            trend_type = "consolidation"
+            strength = min(100, 30 + 30 * abs(data['ema_diff_pct'].iloc[-1]))
+    elif crossovers >= 2 or abs(data['ema_diff_pct'].iloc[-1]) < 0.2:
+        trend_type = "sideways"
+        strength = min(100, 50 + 50 * (3 - crossovers) / 3)
+    else:
+        trend_type = "consolidation"
+        strength = min(100, 30 + 30 * abs(data['ema_diff_pct'].iloc[-1]))
+
+    # Check for potential trend change
+    potential_change = False
+    if (trend_type in ["uptrend", "downtrend"]) and (diff_slope * current_diff < 0):
+        potential_change = True
+
+    return {
+        'trend_type': trend_type,
+        'strength': min(100, strength),
+        'ema_diff': current_diff,
+        'ema_diff_pct': data['ema_diff_pct'].iloc[-1],
+        'crossovers': crossovers,
+        'diff_slope': diff_slope,
+        'potential_change': potential_change,
+        'data': data.copy()  # Return a copy to avoid side effects
+    }

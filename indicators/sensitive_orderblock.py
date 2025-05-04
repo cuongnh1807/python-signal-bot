@@ -9,7 +9,7 @@ from binance.client import Client
 from binance_data_fetcher import BinanceDataFetcher
 from indicators.candles import analyze_candle_volume
 from indicators.rsi import calculate_macd
-from helpers.price import merge_overlapping_order_blocks
+from helpers.price import detect_trend_from_ema, merge_overlapping_order_blocks
 from helpers.candles import should_keep_ob
 
 
@@ -37,10 +37,11 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
     original_index = df.index.copy()
 
     # Ensure DataFrame has integer index for calculations
+
+    result = detect_trend_from_ema(df, lookback=20)
+    df = result['data']
+    del result['data']
     df = df.reset_index(drop=True)
-    analysis = analyze_candle_volume(df, len(df)-1)
-    df['ema34'] = df['close'].ewm(span=34, adjust=False).mean()
-    df['ema89'] = df['close'].ewm(span=89, adjust=False).mean()
 
     # Calculate MACD for filtering
     macd_info = calculate_macd(df)
@@ -137,7 +138,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         # Add to list if strong enough
                         # if ob['strength'] >= strength_threshold:
                         keep_ob, result = should_keep_ob(df, ob, len(
-                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis, strength_threshold=strength_threshold)
+                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=result, strength_threshold=strength_threshold, )
                         if keep_ob:
                             # Add score and quality info to the order block
                             ob['score'] = result["final_score"]
@@ -186,7 +187,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         # Add to list if strong enough
                         # if ob['strength'] >= strength_threshold:
                         keep_ob, result = should_keep_ob(df, ob, len(
-                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis, strength_threshold=strength_threshold)
+                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=result, strength_threshold=strength_threshold)
                         if keep_ob:
                             # Add score and quality info to the order block
                             ob['score'] = result["final_score"]

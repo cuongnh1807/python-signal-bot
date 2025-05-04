@@ -111,8 +111,6 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     # Extract OB direction and set string representation
     ob_direction = ob['direction']  # 1 = Bullish, -1 = Bearish
     ob_direction_str = "BULLISH" if ob_direction == 1 else "BEARISH"
-    analysis = analysis or {'volume_analysis': {'volume_score': 50}, 'pressure': {
-        'type': 'Neutral'}}  # Default if not provided
 
     # Get current and previous candles
     current_candle = df.iloc[current_index]
@@ -129,7 +127,12 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         }
     reversal_score = 0
     warnings = []
-    lookback = min(16, current_index)
+    lookback = min(6, current_index)
+    if analysis['trend_type'] == 'uptrend' or analysis['trend_type'] == 'downtrend':
+        lookback = min(12, current_index)
+    else:
+        lookback = min(8, current_index)
+
     if lookback > 0:
         recent_candles = df.iloc[current_index - lookback:current_index + 1]
         for i in range(len(recent_candles)):
@@ -186,43 +189,16 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
             reversal_score += 25
     except KeyError:
         pass
-    try:
-        ema34 = df['ema34'].iloc[current_index]
-        ema89 = df['ema89'].iloc[current_index]
-        prev_ema34 = df['ema34'].iloc[current_index -
-                                      1] if current_index > 0 else None
-        prev_ema89 = df['ema89'].iloc[current_index -
-                                      1] if current_index > 0 else None
-        close = df['close'].iloc[current_index]
-        prev_close = df['close'].iloc[current_index -
-                                      1] if current_index > 0 else None
-        if prev_ema34 is not None and prev_ema89 is not None and prev_close is not None:
-            if ob_direction == 1:
-                # Check for EMA crossover: EMA34 crosses below EMA89
-                if prev_ema34 > prev_ema89 and ema34 < ema89:
-                    reversal_score += 30
-                # Check for price crossing below EMA34
-                if prev_close > prev_ema34 and close < ema34:
-                    reversal_score += 20
-                # Check for EMA convergence
-                strength_previous = prev_ema34 - prev_ema89
-                strength_current = ema34 - ema89
-                if strength_current < strength_previous and strength_previous > 0:
-                    reversal_score += 15
-            elif ob_direction == -1:
-                # Check for EMA crossover: EMA34 crosses above EMA89
-                if prev_ema34 < prev_ema89 and ema34 > ema89:
-                    reversal_score += 30
-                # Check for price crossing above EMA34
-                if prev_close < prev_ema34 and close > ema34:
-                    reversal_score += 20
-                # Check for EMA convergence
-                strength_previous = prev_ema89 - prev_ema34
-                strength_current = ema89 - ema34
-                if strength_current < strength_previous and strength_previous > 0:
-                    reversal_score += 15
-    except KeyError:
-        pass
+    if ob_direction == 1 and analysis['trend_type'] == 'downtrend':
+        if analysis['potential_change'] == True:
+            reversal_score += 20
+        else:
+            reversal_score += 35
+    if ob_direction == -1 and analysis['trend_type'] == 'uptrend':
+        if analysis['potential_change'] == True:
+            reversal_score += 20
+        else:
+            reversal_score += 35
     reversal_score = min(reversal_score, 100)  # Cap reversal score at 100
 
     # Early rejection if reversal score is very high
@@ -245,15 +221,19 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
             price_action_score += 40  # Bullish Pin Bar
         if engulfing == 1:
             price_action_score += 40  # Bullish Engulfing
-        if current_candle['low'] <= ob['bottom']:
-            price_action_score += 20  # Price respects OB bottom
+        if analysis['trend_type'] == 'uptrend':
+            price_action_score += 30
+        if analysis['trend_type'] == 'sideways' or analysis['trend_type'] == 'consolidation':
+            price_action_score += 20
     else:  # Bearish OB
         if pin_bar == -1:
             price_action_score += 40  # Bearish Pin Bar
         if engulfing == -1:
             price_action_score += 40  # Bearish Engulfing
-        if current_candle['high'] >= ob['top']:
-            price_action_score += 20  # Price respects OB top
+        if analysis['trend_type'] == 'downtrend':
+            price_action_score += 30
+        if analysis['trend_type'] == 'sideways' or analysis['trend_type'] == 'consolidation':
+            price_action_score += 20
 
     # Calculate Momentum Score
     momentum_score = 50  # Neutral default

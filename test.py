@@ -1,5 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+from helpers.price import detect_trend_from_ema
 from live_trading_bot import LiveTradingBot, TelegramNotifier
 import mplfinance as mpf
 from binance.client import Client
@@ -34,10 +35,8 @@ bot = LiveTradingBot(
 bot._fetch_latest_data()
 
 df = bot.historical_data
-print(df)
-orderblocks = smc.ob(df, 'sensitive')
-print(orderblocks)
-
+# result = detect_trend_from_ema(df)
+# print(result)
 # Vẽ biểu đồ
 
 

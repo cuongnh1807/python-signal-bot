@@ -35,8 +35,9 @@ bot = LiveTradingBot(
 bot._fetch_latest_data()
 
 df = bot.historical_data
-# result = detect_trend_from_ema(df)
-# print(result)
+result = detect_trend_from_ema(df, lookback=20)
+del result['data']
+print(result['trend_type'])
 # Vẽ biểu đồ
 
 

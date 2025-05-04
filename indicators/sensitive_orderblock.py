@@ -38,9 +38,9 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
 
     # Ensure DataFrame has integer index for calculations
 
-    result = detect_trend_from_ema(df, lookback=20)
-    df = result['data']
-    del result['data']
+    analysis = detect_trend_from_ema(df, lookback=20)
+    df = analysis['data']
+    del analysis['data']
     df = df.reset_index(drop=True)
 
     # Calculate MACD for filtering
@@ -138,7 +138,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         # Add to list if strong enough
                         # if ob['strength'] >= strength_threshold:
                         keep_ob, result = should_keep_ob(df, ob, len(
-                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=result, strength_threshold=strength_threshold, )
+                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis, strength_threshold=strength_threshold, )
                         if keep_ob:
                             # Add score and quality info to the order block
                             ob['score'] = result["final_score"]
@@ -187,7 +187,7 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         # Add to list if strong enough
                         # if ob['strength'] >= strength_threshold:
                         keep_ob, result = should_keep_ob(df, ob, len(
-                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=result, strength_threshold=strength_threshold)
+                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis, strength_threshold=strength_threshold)
                         if keep_ob:
                             # Add score and quality info to the order block
                             ob['score'] = result["final_score"]

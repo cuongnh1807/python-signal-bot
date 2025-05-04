@@ -278,11 +278,7 @@ class TelegramNotifier:
         ema200 = ma_analysis.get('ema200', 0)
         macd_buy = macd_info.get('buy_signal', False)
         macd_sell = macd_info.get('sell_signal', False)
-        macd_direction = macd_info.get('macd_direction', 'NEUTRAL')
-        histogram_direction = macd_info.get(
-            'histogram_direction', 'NEUTRAL')
         macd_signal = "🟢 BUY" if macd_buy else "🔴 SELL" if macd_sell else "⚪️ NEUTRAL"
-        macd_trend = f"MACD: {macd_direction} | Histogram: {histogram_direction}"
 
         # Calculate price position relative to EMAs
         price_to_ema50 = ((current_price / ema50) - 1) * \
@@ -299,7 +295,6 @@ class TelegramNotifier:
                    f"• RSI ({velocity.get('rsi_analysis', {}).get('current', 0):.1f}): "
                    f"{'🔴 Overbought' if velocity.get('rsi_analysis', {}).get('overbought') else '🟢 Oversold' if velocity.get('rsi_analysis', {}).get('oversold') else '⚪️ Neutral'}\n"
                    f"• MACD Signal: {macd_signal}\n"
-                   f"• MACD Trend: {macd_trend}\n"
                    "━━━━━━━━━━━━━━━━━━━━━━\n")
         self.send_message(message)
 
@@ -678,7 +673,9 @@ class LiveTradingBot:
                 respect_pressure=True,
                 respect_warnings=True
             )
-            self.telegram.notify_common_indicators(analysis)
+            current_minute = datetime.now().minute
+            if current_minute % 15 == 0:
+                self.telegram.notify_common_indicators(analysis)
 
             # Track orders from the current analysis
             new_order_signatures = set()

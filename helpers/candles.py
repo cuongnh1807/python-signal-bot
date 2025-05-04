@@ -193,12 +193,12 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         if analysis['potential_change'] == True:
             reversal_score += 20
         else:
-            reversal_score += 35
+            reversal_score += 30
     if ob_direction == -1 and analysis['trend_type'] == 'uptrend':
         if analysis['potential_change'] == True:
             reversal_score += 20
         else:
-            reversal_score += 35
+            reversal_score += 30
     reversal_score = min(reversal_score, 100)  # Cap reversal score at 100
 
     # Early rejection if reversal score is very high

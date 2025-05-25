@@ -259,6 +259,7 @@ def detect_trend_from_ema(data: pd.DataFrame, short_period: int = 34, long_perio
     current_diff = data['ema_diff'].iloc[-1]
     diff_slope = recent['ema_diff'].diff().mean()
     diff_acceleration = recent['ema_diff'].diff().diff().mean()
+    print(diff_slope, diff_acceleration)
     # Determine trend type
     if current_diff > 0:
         if diff_slope > 0:

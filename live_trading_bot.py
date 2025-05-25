@@ -195,7 +195,7 @@ class TelegramNotifier:
             f"Position Size: <b>${position_size:.2f}</b>"
         )
 
-        self.send_message(message, topic_id=self.orders_topic_id)
+        self.send_message(message, topic_id=self.signals_topic_id)
 
     def notify_position_closed(self, position: Dict):
         """Send notification about a closed position"""

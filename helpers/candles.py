@@ -129,9 +129,9 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     warnings = []
     lookback = min(6, current_index)
     if analysis['trend_type'] == 'uptrend' or analysis['trend_type'] == 'downtrend':
-        lookback = min(8, current_index)
+        lookback = min(10, current_index)
     else:
-        lookback = min(12, current_index)
+        lookback = min(13, current_index)
 
     if lookback > 0:
         recent_candles = df.iloc[current_index - lookback:current_index + 1]
@@ -191,14 +191,14 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         pass
     if ob_direction == 1 and analysis['trend_type'] == 'downtrend':
         if analysis['potential_change'] == True:
-            reversal_score += 20
-        else:
             reversal_score += 30
+        else:
+            reversal_score += 40
     if ob_direction == -1 and analysis['trend_type'] == 'uptrend':
         if analysis['potential_change'] == True:
-            reversal_score += 20
-        else:
             reversal_score += 30
+        else:
+            reversal_score += 40
     reversal_score = min(reversal_score, 100)  # Cap reversal score at 100
 
     # Early rejection if reversal score is very high

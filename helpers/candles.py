@@ -129,9 +129,9 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
     warnings = []
     lookback = min(6, current_index)
     if analysis['trend_type'] == 'uptrend' or analysis['trend_type'] == 'downtrend':
-        lookback = min(10, current_index)
+        lookback = min(12, current_index)
     else:
-        lookback = min(13, current_index)
+        lookback = min(10, current_index)
 
     if lookback > 0:
         recent_candles = df.iloc[current_index - lookback:current_index + 1]
@@ -222,7 +222,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         if engulfing == 1:
             price_action_score += 40  # Bullish Engulfing
         if analysis['trend_type'] == 'uptrend':
-            price_action_score += 30
+            price_action_score += 25
         if analysis['trend_type'] == 'sideways' or analysis['trend_type'] == 'consolidation':
             price_action_score += 20
     else:  # Bearish OB
@@ -231,7 +231,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         if engulfing == -1:
             price_action_score += 40  # Bearish Engulfing
         if analysis['trend_type'] == 'downtrend':
-            price_action_score += 30
+            price_action_score += 25
         if analysis['trend_type'] == 'sideways' or analysis['trend_type'] == 'consolidation':
             price_action_score += 20
 
@@ -252,7 +252,7 @@ def should_keep_ob(df: pd.DataFrame, ob: Dict, current_index: int, use_should_ke
         pass  # Skip if MACD data is unavailable
 
     # Compute Final Score with Weights
-    weights = {'price_action': 0.4, 'momentum': 0.3, 'volume': 0.3}
+    weights = {'price_action': 0.4, 'momentum': 0.4, 'volume': 0.2}
     # print()
     final_score = (
         price_action_score * weights['price_action'] +

@@ -192,6 +192,8 @@ class TelegramNotifier:
             f"✅ <b>{side} Order Filled</b>\n\n"
             f"Symbol: <b>{symbol}</b>\n"
             f"Entry Price: <b>${entry_price:.2f}</b>\n"
+            f"Take Profit: <b>${order['take_profit'].get('tp1', 0):.2f}</b>\n"
+            f"Stop Loss: <b>${order['stop_loss']:.2f}</b>\n"
             f"Position Size: <b>${position_size:.2f}</b>"
         )
 

@@ -136,19 +136,19 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         }
 
                         # Add to list if strong enough
-                        # if ob['strength'] >= strength_threshold:
-                        keep_ob, result = should_keep_ob(df, ob, len(
-                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis, strength_threshold=strength_threshold, )
-                        if keep_ob:
-                            # Add score and quality info to the order block
-                            ob['score'] = result["final_score"]
-                            ob['setup_quality'] = result["setup_quality"]
-                            ob['threshold'] = result["threshold"]
-                            ob['warnings'] = result["warnings"]
-                            ob['entry_quality'] = result.get(
-                                "entry_quality", "Unknown")
-                            bearish_obs.append(ob)
-                            historical_obs.append(ob)
+                        if ob['strength'] >= strength_threshold:
+                            keep_ob, result = should_keep_ob(df, ob, len(
+                                df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis, strength_threshold=strength_threshold)
+                            if keep_ob:
+                                # Add score and quality info to the order block
+                                ob['score'] = result["final_score"]
+                                ob['setup_quality'] = result["setup_quality"]
+                                ob['threshold'] = result["threshold"]
+                                ob['warnings'] = result["warnings"]
+                                ob['entry_quality'] = result.get(
+                                    "entry_quality", "Unknown")
+                                bearish_obs.append(ob)
+                                historical_obs.append(ob)
                             break
 
         # Bullish order block detection (after price momentum shift up)
@@ -185,20 +185,20 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
                         }
 
                         # Add to list if strong enough
-                        # if ob['strength'] >= strength_threshold:
-                        keep_ob, result = should_keep_ob(df, ob, len(
-                            df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis, strength_threshold=strength_threshold)
-                        if keep_ob:
-                            # Add score and quality info to the order block
-                            ob['score'] = result["final_score"]
-                            ob['setup_quality'] = result["setup_quality"]
-                            ob['threshold'] = result["threshold"]
-                            ob['warnings'] = result["warnings"]
-                            ob['entry_quality'] = result.get(
-                                "entry_quality", "Unknown")
-                            bullish_obs.append(ob)
-                            historical_obs.append(ob)
-                            break
+                        if ob['strength'] >= strength_threshold:
+                            keep_ob, result = should_keep_ob(df, ob, len(
+                                df)-1, use_should_keep_ob=use_should_keep_ob, analysis=analysis, strength_threshold=strength_threshold)
+                            if keep_ob:
+                                # Add score and quality info to the order block
+                                ob['score'] = result["final_score"]
+                                ob['setup_quality'] = result["setup_quality"]
+                                ob['threshold'] = result["threshold"]
+                                ob['warnings'] = result["warnings"]
+                                ob['entry_quality'] = result.get(
+                                    "entry_quality", "Unknown")
+                                bullish_obs.append(ob)
+                                historical_obs.append(ob)
+                                break
 
         # Check for order block mitigation
         if idx > 0:
@@ -268,8 +268,64 @@ def detect_order_sensitive_blocks(df, sens=0.28, OBMitigationType="Close", buy_a
         bullish_obs = merge_overlapping_order_blocks(
             bullish_obs, merge_threshold)
 
+    # Final mitigation check - ensure no broken order blocks remain
+    final_bearish_obs = []
+    final_bullish_obs = []
+
+    # Get the latest price data for final mitigation check
+    latest_idx = len(df) - 1
+    if latest_idx >= 0:
+        latest_high = df.loc[latest_idx, 'high']
+        latest_low = df.loc[latest_idx, 'low']
+        latest_close = df.loc[latest_idx, 'close']
+
+        # Final check for bearish order blocks
+        for ob in bearish_obs:
+            is_mitigated = False
+
+            # Check if any price action after OB creation broke the top
+            ob_idx = ob['index']
+            for check_idx in range(ob_idx + 1, len(df)):
+                if OBMitigationType == "Close":
+                    mitigation_price = df.loc[check_idx, 'close']
+                else:  # "Wick"
+                    mitigation_price = df.loc[check_idx, 'high']
+
+                if mitigation_price > ob['top']:
+                    ob['mitigated'] = True
+                    ob['mitigated_time'] = original_index[check_idx]
+                    is_mitigated = True
+                    break
+
+            if not is_mitigated:
+                final_bearish_obs.append(ob)
+
+        # Final check for bullish order blocks
+        for ob in bullish_obs:
+            is_mitigated = False
+
+            # Check if any price action after OB creation broke the bottom
+            ob_idx = ob['index']
+            for check_idx in range(ob_idx + 1, len(df)):
+                if OBMitigationType == "Close":
+                    mitigation_price = df.loc[check_idx, 'close']
+                else:  # "Wick"
+                    mitigation_price = df.loc[check_idx, 'low']
+
+                if mitigation_price < ob['bottom']:
+                    ob['mitigated'] = True
+                    ob['mitigated_time'] = original_index[check_idx]
+                    is_mitigated = True
+                    break
+
+            if not is_mitigated:
+                final_bullish_obs.append(ob)
+    else:
+        final_bearish_obs = bearish_obs
+        final_bullish_obs = bullish_obs
+
     # Return combined list of order blocks
-    return bearish_obs + bullish_obs
+    return final_bearish_obs + final_bullish_obs
 
 
 def calculate_ob_strength(df, idx, direction, historical_obs, has_volume):
@@ -297,38 +353,68 @@ def calculate_ob_strength(df, idx, direction, historical_obs, has_volume):
         vol = df.at[idx, 'volume']
         vol_ma = df.at[idx, 'volume_ma']
         volume_ratio = vol / vol_ma if vol_ma > 0 else 1
-        volume_strength = min(volume_ratio * 40, 60)
+        # Higher volume relative to average indicates stronger institutional activity
+        volume_strength = min(volume_ratio * 40, 50)  # Cap at 50 instead of 60
 
-    # 2. Calculate height strength (20% of score)
-    height_strength = min(height_ratio * 20, 20)
+    # 2. Calculate price range strength (30% of score)
+    # Larger order blocks relative to ATR indicate stronger institutional presence
+    price_range_strength = min(height_ratio * 30, 30)
 
-    # 3. Calculate historical presence strength (25% of score)
-    historical_count = 0
-    recent_count = 0
+    # 3. Calculate direction alignment strength (30% of score)
+    direction_strength = 0
+    if idx >= 10:  # Need enough history to analyze trend
+        # Analyze recent candle directions (last 5-10 candles)
+        lookback_period = min(10, idx)
+        recent_bullish = 0
+        recent_bearish = 0
 
-    if historical_obs:
-        # Define price range for similar order blocks
-        price_range = height * 1.5
-        avg_price = (df.at[idx, 'high'] + df.at[idx, 'low']) / 2
+        for i in range(1, lookback_period + 1):
+            check_idx = idx - i
+            if check_idx >= 0:
+                candle_close = df.at[check_idx, 'close']
+                candle_open = df.at[check_idx, 'open']
 
-        # Count similar order blocks
-        for ob in historical_obs:
-            ob_avg = (ob['top'] + ob['bottom']) / 2
-            if abs(avg_price - ob_avg) <= price_range:
-                historical_count += 1
-                if abs(idx - ob['index']) <= 100:  # Recent is within 100 bars
-                    recent_count += 1
+                if candle_close > candle_open:
+                    recent_bullish += 1
+                elif candle_close < candle_open:
+                    recent_bearish += 1
 
-    # Calculate historical strength component
-    if recent_count >= 3:
-        # Reduced importance if too many recent OBs
-        historical_strength = max(5, 15 - (recent_count - 2) * 5)
-    else:
-        historical_strength = min(historical_count * 4, 20)
+        # Calculate recent trend bias
+        total_candles = recent_bullish + recent_bearish
+        if total_candles > 0:
+            bullish_ratio = recent_bullish / total_candles
+            bearish_ratio = recent_bearish / total_candles
+
+            if direction == 1:  # Bullish OB
+                if bullish_ratio > 0.6:
+                    # OB aligns with trend - moderate strength
+                    direction_strength = 20
+                elif bearish_ratio > 0.6:
+                    # Counter-trend OB - potentially strong reversal signal
+                    direction_strength = 25
+                else:
+                    # Neutral/mixed trend - average strength
+                    direction_strength = 15
+            else:  # Bearish OB (direction == -1)
+                if bearish_ratio > 0.6:
+                    # OB aligns with trend - moderate strength
+                    direction_strength = 20
+                elif bullish_ratio > 0.6:
+                    # Counter-trend OB - potentially strong reversal signal
+                    direction_strength = 25
+                else:
+                    # Neutral/mixed trend - average strength
+                    direction_strength = 15
+        else:
+            # No clear trend data - neutral strength
+            direction_strength = 15
 
     # Calculate total strength
     total_strength = int(
-        volume_strength + height_strength + historical_strength)
+        volume_strength + price_range_strength + direction_strength)
+
+    # Ensure strength is within 0-100 range
+    total_strength = max(0, min(100, total_strength))
 
     return total_strength
 
@@ -404,7 +490,7 @@ if __name__ == "__main__":
     fetchData = BinanceDataFetcher(client)
     start_time = datetime.now() - timedelta(days=args.days)
     rawData = client.get_historical_klines(
-        args.symbol, interval=args.interval, start_str=int(start_time.timestamp() * 1000), end_str=int((datetime.now()).timestamp() * 1000))
+        args.symbol, interval=args.interval, start_str=int(start_time.timestamp() * 1000), end_str=int((datetime.now()-timedelta(hours=5, minutes=30)).timestamp() * 1000))
     data = pd.DataFrame(rawData, columns=[
         'timestamp', 'open', 'high', 'low', 'close', 'volume',
         'close_time', 'quote_volume', 'trades', 'taker_buy_base',

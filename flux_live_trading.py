@@ -294,11 +294,7 @@ class FluxOrderBlockStrategy:
                     f"{self.symbol}: Quality multiplier {quality_multiplier:.2f}x applied (score: {ob.entry_score:.1f})")
 
             # Final position size limits
-            min_position = capital_per_symbol * 0.05  # Min 5% of allocated capital
-            max_position = capital_per_symbol * 0.4 * leverage  # Max 40% with leverage
-
-            position_size = max(min_position, min(
-                leveraged_position_size, max_position))
+            position_size = leveraged_position_size
 
             # Log position sizing details
             margin_required = position_size / leverage

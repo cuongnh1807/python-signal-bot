@@ -24,10 +24,10 @@ from helpers.price import adjust_precision
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("flux_trading.log"),
-        logging.StreamHandler()
-    ]
+    # handlers=[
+    #     logging.FileHandler("flux_trading.log"),
+    #     logging.StreamHandler()
+    # ]
 )
 logger = logging.getLogger(__name__)
 
@@ -44,23 +44,27 @@ class TelegramNotifier:
         if enabled and bot_token and chat_id:
             self.send_message("🚀 <b>Flux OrderBlock Trading Bot Started</b>")
 
-    def send_message(self, message: str):
+    def send_message(self, message: str, topic_id: str = None):
         if not self.enabled or not self.bot_token or not self.chat_id:
             return
 
         try:
-            response = requests.post(self.base_url, data={
+            data = {
                 "chat_id": self.chat_id,
                 "text": message,
                 "parse_mode": "HTML"
-            })
+            }
+            if topic_id:
+                data["message_thread_id"] = topic_id
+            response = requests.post(self.base_url, data=data)
             if response.status_code != 200:
                 logger.error(f"Telegram error: {response.text}")
         except Exception as e:
             logger.error(f"Telegram send error: {e}")
 
     def notify_orderblock_signal(self, symbol: str, ob: OrderBlockInfo, entry_price: float,
-                                 stop_loss: float, take_profit: float, position_size: float):
+                                 stop_loss: float, take_profit: float, position_size: float,
+                                 margin_required: float = None, risk_amount: float = None, leverage: int = 10):
         """Notify about new order block signal"""
         emoji = "🟢" if ob.ob_type == "Bull" else "🔴"
         side = "LONG" if ob.ob_type == "Bull" else "SHORT"
@@ -76,10 +80,19 @@ class TelegramNotifier:
             f"Entry: <b>${entry_price:.4f}</b>\n"
             f"Stop Loss: <b>${stop_loss:.4f}</b>\n"
             f"Take Profit: <b>${take_profit:.4f}</b>\n"
-            f"Position Size: <b>${position_size:.2f}</b>\n"
-            f"Risk/Reward: <b>{rr_ratio:.2f}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💰 <b>Position Details</b>\n"
+            f"Position Size: <b>${position_size:.0f}</b>\n"
         )
+
+        if margin_required:
+            message += f"Margin Required: <b>${margin_required:.0f}</b>\n"
+            message += f"Leverage: <b>{leverage}x</b>\n"
+
+        if risk_amount:
+            message += f"Risk Amount: <b>${risk_amount:.0f}</b>\n"
+
+        message += f"Risk/Reward: <b>{rr_ratio:.2f}</b>\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
         # Add entry evaluation metrics if available
         if hasattr(ob, 'entry_score'):
@@ -113,7 +126,8 @@ class TelegramNotifier:
             f"Created: <b>{ob.start_time.strftime('%m-%d %H:%M')}</b>"
         )
 
-        self.send_message(message)
+        self.send_message(message, topic_id=os.getenv(
+            'TELEGRAM_ORDERS_TOPIC_ID', "5"))
 
     def notify_fill(self, symbol: str, side: str, price: float, quantity: float):
         """Notify about order fill"""
@@ -125,7 +139,8 @@ class TelegramNotifier:
             f"Price: <b>${price:.4f}</b>\n"
             f"Quantity: <b>{quantity:.6f}</b>"
         )
-        self.send_message(message)
+        self.send_message(message, topic_id=os.getenv(
+            'TELEGRAM_SIGNALS_TOPIC_ID', "6"))
 
     def notify_close(self, symbol: str, side: str, entry: float, exit: float,
                      pnl: float, pnl_percent: float, reason: str):
@@ -140,7 +155,8 @@ class TelegramNotifier:
             f"PnL: <b>${pnl:.2f} ({pnl_percent:.2f}%)</b>\n"
             f"Reason: <b>{reason}</b>"
         )
-        self.send_message(message)
+        self.send_message(message, topic_id=os.getenv(
+            'TELEGRAM_SIGNALS_TOPIC_ID', "6"))
 
 
 class FluxOrderBlockStrategy:
@@ -238,21 +254,56 @@ class FluxOrderBlockStrategy:
                     f"{self.symbol}: OB too far ({distance_pct:.1f}%) - skipping")
                 return None
 
-            # Calculate position size based on risk
-            risk_per_trade = self.config.get('risk_per_trade_pct', 2.0) / 100
+            # NEW POSITION SIZING LOGIC - More aggressive with leverage
             capital_per_symbol = self.config.get('capital_per_symbol', 500)
+            leverage = self.config.get('leverage', 10)
 
-            risk_amount = capital_per_symbol * risk_per_trade
-            price_risk = abs(entry_price - stop_loss)
+            # Use percentage of capital per trade (default 15% of allocated capital)
+            capital_usage_pct = self.config.get(
+                'capital_usage_pct', 15.0) / 100
+            base_position_value = capital_per_symbol * capital_usage_pct
 
-            if price_risk <= 0:
-                return None
+            # Apply leverage to get actual position size
+            leveraged_position_size = base_position_value * leverage
 
-            position_size = risk_amount / (price_risk / entry_price)
+            # Risk management: limit based on stop loss distance
+            price_risk_pct = abs((entry_price - stop_loss) / entry_price)
+            max_risk_pct = self.config.get('max_risk_per_trade_pct', 8.0) / 100
 
-            # Limit position size
-            max_position_size = capital_per_symbol * 0.2  # Max 20% of capital per trade
-            position_size = min(position_size, max_position_size)
+            # Adjust position size if risk is too high
+            if price_risk_pct > max_risk_pct:
+                # Reduce position size to maintain acceptable risk
+                risk_adjustment = max_risk_pct / price_risk_pct
+                leveraged_position_size *= risk_adjustment
+                logger.info(
+                    f"{self.symbol}: Risk too high ({price_risk_pct*100:.1f}%), reducing position by {(1-risk_adjustment)*100:.1f}%")
+
+            # Quality-based position sizing - increase for high-quality setups
+            if hasattr(ob, 'entry_score'):
+                quality_multiplier = 1.0
+                if ob.entry_score >= 80:
+                    quality_multiplier = 1.3  # +30% for excellent setups
+                elif ob.entry_score >= 65:
+                    quality_multiplier = 1.15  # +15% for good setups
+                elif ob.entry_score < 50:
+                    quality_multiplier = 0.7   # -30% for moderate setups
+
+                leveraged_position_size *= quality_multiplier
+                logger.info(
+                    f"{self.symbol}: Quality multiplier {quality_multiplier:.2f}x applied (score: {ob.entry_score:.1f})")
+
+            # Final position size limits
+            min_position = capital_per_symbol * 0.05  # Min 5% of allocated capital
+            max_position = capital_per_symbol * 0.4 * leverage  # Max 40% with leverage
+
+            position_size = max(min_position, min(
+                leveraged_position_size, max_position))
+
+            # Log position sizing details
+            margin_required = position_size / leverage
+            risk_amount = position_size * price_risk_pct
+            logger.info(
+                f"{self.symbol}: Position ${position_size:.0f}, Margin ${margin_required:.0f}, Risk ${risk_amount:.0f} ({(risk_amount/capital_per_symbol)*100:.1f}%)")
 
             order = {
                 'symbol': self.symbol,
@@ -262,7 +313,9 @@ class FluxOrderBlockStrategy:
                 'stop_loss': stop_loss,
                 'take_profit': take_profit,
                 'position_size': position_size,
-                'leverage': self.config.get('leverage', 10),
+                'margin_required': margin_required,
+                'risk_amount': risk_amount,
+                'leverage': leverage,
                 'order_block': ob,  # Store reference to OB
                 'created_time': datetime.now(),
                 'distance_pct': distance_pct
@@ -421,7 +474,10 @@ class FluxLiveTradingBot:
                 entry_price=order['entry_price'],
                 stop_loss=order['stop_loss'],
                 take_profit=order['take_profit'],
-                position_size=order['position_size']
+                position_size=order['position_size'],
+                margin_required=order['margin_required'],
+                risk_amount=order['risk_amount'],
+                leverage=order['leverage']
             )
 
             if self.config.get('test_mode', True):
@@ -830,8 +886,11 @@ def load_config() -> Dict:
         'use_entry_evaluation': True,
         'entry_threshold': int(os.getenv('ENTRY_THRESHOLD', '45')),
 
-        # Risk management
-        'risk_per_trade_pct': float(os.getenv('RISK_PER_TRADE_PCT', '2.0')),
+        # Position sizing & Risk management
+        # % of allocated capital per trade
+        'capital_usage_pct': float(os.getenv('CAPITAL_USAGE_PCT', '15.0')),
+        # Max risk per trade
+        'max_risk_per_trade_pct': float(os.getenv('MAX_RISK_PER_TRADE_PCT', '8.0')),
         'leverage': int(os.getenv('LEVERAGE', '10')),
         'stop_loss_pct': float(os.getenv('STOP_LOSS_PCT', '2.0')) / 100,
         'take_profit_pct': float(os.getenv('TAKE_PROFIT_PCT', '4.0')) / 100,
@@ -857,9 +916,13 @@ def main():
     # Configuration
     config = load_config()
 
-    # Symbols to trade
-    symbols = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT',
-               'BTCDOMUSDT', 'SOLUSDT', 'BNBUSDT']
+    # Load symbols from config or use defaults
+    symbols_str = os.getenv(
+        'TRADING_SYMBOLS', 'BTCUSDT,ETHUSDT,ADAUSDT,BTCDOMUSDT,SOLUSDT,BNBUSDT')
+    symbols = [s.strip() for s in symbols_str.split(',') if s.strip()]
+
+    logger.info(f"Trading symbols: {', '.join(symbols)}")
+
     # Create and start bot
     bot = FluxLiveTradingBot(symbols=symbols, config=config)
 

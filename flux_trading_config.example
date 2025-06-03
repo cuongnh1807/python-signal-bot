@@ -1,24 +1,25 @@
-
+# Flux Order Block Trading Bot Configuration
+# Copy this file to .env and customize your settings
 
 # =============================================================================
-# BINANCE API CONFIGURATION
+# BINANCE API CREDENTIALS (REQUIRED)
 # =============================================================================
 BINANCE_API_KEY=your_binance_api_key_here
 BINANCE_API_SECRET=your_binance_api_secret_here
 
 # =============================================================================
-# TRADING MODE & CAPITAL
+# TRADING MODE
 # =============================================================================
+# Set to 'false' for live trading with real money (be careful!)
 TEST_MODE=true
-TEST_CAPITAL=1000
+TEST_CAPITAL=600
 MAX_CAPITAL=1000
 
 # =============================================================================
-# TRADING SYMBOLS & TIMEFRAME  
+# MARKET DATA SETTINGS  
 # =============================================================================
-TRADING_SYMBOLS=BTCUSDT,ETHUSDT,ADAUSDT,SOLUSDT
 TRADING_INTERVAL=15m
-LOOKBACK_HOURS=72
+LOOKBACK_HOURS=168
 
 # =============================================================================
 # FLUX ORDER BLOCK PARAMETERS
@@ -36,29 +37,72 @@ USE_ENTRY_EVALUATION=true
 ENTRY_THRESHOLD=45
 
 # =============================================================================
-# RISK MANAGEMENT
+# POSITION SIZING & RISK MANAGEMENT (NEW IMPROVED SYSTEM)
 # =============================================================================
-RISK_PER_TRADE_PCT=2.0
+# Percentage of allocated capital to use per trade (default 15%)
+# With 600 USD / 6 symbols = 100 USD per symbol
+# 15% of 100 USD = 15 USD base position
+# With 10x leverage = 150 USD position size
+CAPITAL_USAGE_PCT=15.0
+
+# Maximum risk percentage per trade (default 8%)
+# This limits position size if stop loss is too far
+MAX_RISK_PER_TRADE_PCT=8.0
+
+# Leverage multiplier
 LEVERAGE=10
+
+# Stop loss percentage (2% from entry)
 STOP_LOSS_PCT=2.0
+
+# Take profit percentage (4% from entry)  
 TAKE_PROFIT_PCT=4.0
+
+# Maximum distance from current price to place order (5%)
 MAX_DISTANCE_PCT=5.0
 
 # =============================================================================
 # ORDER MANAGEMENT
 # =============================================================================
+# Maximum number of orders per symbol
 MAX_ORDERS_PER_SYMBOL=2
+
+# Maximum age of pending orders in hours
 MAX_ORDER_AGE_HOURS=24
 
 # =============================================================================
-# TIMING CONFIGURATION
+# TIMING SETTINGS
 # =============================================================================
+# How often to analyze for new order blocks (minutes)
 ANALYSIS_INTERVAL_MINUTES=15
+
+# How often to check orders and positions (seconds)
 MONITORING_INTERVAL_SECONDS=60
 
 # =============================================================================
 # TELEGRAM NOTIFICATIONS
 # =============================================================================
 TELEGRAM_ENABLED=true
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-TELEGRAM_CHAT_ID=your_telegram_chat_id_here 
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_telegram_chat_id
+
+# =============================================================================
+# TRADING SYMBOLS
+# =============================================================================
+# Comma-separated list of symbols to trade
+TRADING_SYMBOLS=BTCUSDT,ETHUSDT,ADAUSDT,BTCDOMUSDT,SOLUSDT,BNBUSDT
+
+# =============================================================================
+# POSITION SIZING EXAMPLES WITH YOUR 600 USD:
+# =============================================================================
+# With 6 symbols: 600 / 6 = 100 USD per symbol
+# With CAPITAL_USAGE_PCT=15%: 100 * 0.15 = 15 USD base position per trade
+# With LEVERAGE=10x: 15 * 10 = 150 USD position size per trade
+# Margin required: 150 / 10 = 15 USD per trade
+# 
+# For high-quality setups (score >= 80): 150 * 1.3 = 195 USD position
+# For excellent setups with good risk: up to 400 USD position (40% limit)
+#
+# AGGRESSIVE SETTINGS (use with caution):
+# CAPITAL_USAGE_PCT=25.0  -> 25 USD base -> 250 USD position size
+# CAPITAL_USAGE_PCT=30.0  -> 30 USD base -> 300 USD position size 

@@ -55,18 +55,54 @@ def show_current_config():
     print("-" * 40)
 
     test_mode = os.getenv('TEST_MODE', 'true').lower() == 'true'
+    test_capital = float(os.getenv('TEST_CAPITAL', '1000'))
     print(f"Mode: {'🧪 TEST' if test_mode else '🔴 LIVE'}")
-    print(
-        f"Symbols: {os.getenv('TRADING_SYMBOLS', 'BTCUSDT,ETHUSDT,ADAUSDT')}")
+    print(f"Capital: ${test_capital:.0f}")
+
+    symbols = os.getenv('TRADING_SYMBOLS',
+                        'BTCUSDT,ETHUSDT,ADAUSDT').split(',')
+    capital_per_symbol = test_capital / len(symbols)
+    print(f"Symbols: {', '.join(symbols)} ({len(symbols)} symbols)")
+    print(f"Capital per Symbol: ${capital_per_symbol:.0f}")
+
     print(f"Interval: {os.getenv('TRADING_INTERVAL', '15m')}")
     print(
         f"Entry Evaluation: {'✅' if os.getenv('USE_ENTRY_EVALUATION', 'true').lower() == 'true' else '❌'}")
     print(f"Entry Threshold: {os.getenv('ENTRY_THRESHOLD', '45')}")
-    print(f"Risk per Trade: {os.getenv('RISK_PER_TRADE_PCT', '2.0')}%")
-    print(f"Leverage: {os.getenv('LEVERAGE', '10')}x")
+
+    # Position sizing details
+    print("\n💰 Position Sizing:")
+    capital_usage = float(os.getenv('CAPITAL_USAGE_PCT', '15.0'))
+    leverage = int(os.getenv('LEVERAGE', '10'))
+    max_risk = float(os.getenv('MAX_RISK_PER_TRADE_PCT', '8.0'))
+
+    base_position = capital_per_symbol * (capital_usage / 100)
+    leveraged_position = base_position * leverage
+    margin_required = base_position
+
+    print(f"Capital Usage: {capital_usage}% per trade")
+    print(f"Base Position: ${base_position:.0f}")
+    print(f"Leverage: {leverage}x")
+    print(f"Position Size: ${leveraged_position:.0f}")
+    print(f"Margin Required: ${margin_required:.0f}")
+    print(f"Max Risk: {max_risk}% per trade")
+
+    # Quality multipliers
+    print(f"\n🎯 Quality Multipliers:")
+    print(f"Excellent (80+): ${leveraged_position * 1.3:.0f}")
+    print(f"Good (65+): ${leveraged_position * 1.15:.0f}")
+    print(f"Moderate (<50): ${leveraged_position * 0.7:.0f}")
 
     telegram_enabled = os.getenv('TELEGRAM_ENABLED', 'false').lower() == 'true'
-    print(f"Telegram: {'✅' if telegram_enabled else '❌'}")
+    print(f"\n📱 Telegram: {'✅' if telegram_enabled else '❌'}")
+
+    if capital_usage >= 25:
+        print(
+            f"\n⚠️  HIGH RISK: {capital_usage}% capital usage is aggressive!")
+    elif capital_usage >= 20:
+        print(f"\n⚠️  MEDIUM RISK: {capital_usage}% capital usage")
+    else:
+        print(f"\n✅ CONSERVATIVE: {capital_usage}% capital usage")
 
 
 def main():

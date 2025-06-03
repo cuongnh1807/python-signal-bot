@@ -888,7 +888,7 @@ def load_config() -> Dict:
 
         # Position sizing & Risk management
         # % of allocated capital per trade
-        'capital_usage_pct': float(os.getenv('CAPITAL_USAGE_PCT', '15.0')),
+        'capital_usage_pct': float(os.getenv('CAPITAL_USAGE_PCT', '80.0')),
         # Max risk per trade
         'max_risk_per_trade_pct': float(os.getenv('MAX_RISK_PER_TRADE_PCT', '8.0')),
         'leverage': int(os.getenv('LEVERAGE', '10')),
@@ -918,7 +918,7 @@ def main():
 
     # Load symbols from config or use defaults
     symbols_str = os.getenv(
-        'TRADING_SYMBOLS', 'BTCUSDT,ETHUSDT,ADAUSDT,BTCDOMUSDT,SOLUSDT,BNBUSDT')
+        'TRADING_SYMBOLS', 'BTCUSDT,ETHUSDT,ADAUSDT,SOLUSDT,BNBUSDT')
     symbols = [s.strip() for s in symbols_str.split(',') if s.strip()]
 
     logger.info(f"Trading symbols: {', '.join(symbols)}")

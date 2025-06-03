@@ -1,0 +1,64 @@
+
+
+# =============================================================================
+# BINANCE API CONFIGURATION
+# =============================================================================
+BINANCE_API_KEY=your_binance_api_key_here
+BINANCE_API_SECRET=your_binance_api_secret_here
+
+# =============================================================================
+# TRADING MODE & CAPITAL
+# =============================================================================
+TEST_MODE=true
+TEST_CAPITAL=1000
+MAX_CAPITAL=1000
+
+# =============================================================================
+# TRADING SYMBOLS & TIMEFRAME  
+# =============================================================================
+TRADING_SYMBOLS=BTCUSDT,ETHUSDT,ADAUSDT,SOLUSDT
+TRADING_INTERVAL=15m
+LOOKBACK_HOURS=72
+
+# =============================================================================
+# FLUX ORDER BLOCK PARAMETERS
+# =============================================================================
+SWING_LENGTH=10
+MAX_ATR_MULT=3.5
+MITIGATION_METHOD=Wick
+MAX_BULLISH_OBS=5
+MAX_BEARISH_OBS=5
+
+# =============================================================================
+# ENTRY EVALUATION SYSTEM
+# =============================================================================
+USE_ENTRY_EVALUATION=true
+ENTRY_THRESHOLD=45
+
+# =============================================================================
+# RISK MANAGEMENT
+# =============================================================================
+RISK_PER_TRADE_PCT=2.0
+LEVERAGE=10
+STOP_LOSS_PCT=2.0
+TAKE_PROFIT_PCT=4.0
+MAX_DISTANCE_PCT=5.0
+
+# =============================================================================
+# ORDER MANAGEMENT
+# =============================================================================
+MAX_ORDERS_PER_SYMBOL=2
+MAX_ORDER_AGE_HOURS=24
+
+# =============================================================================
+# TIMING CONFIGURATION
+# =============================================================================
+ANALYSIS_INTERVAL_MINUTES=15
+MONITORING_INTERVAL_SECONDS=60
+
+# =============================================================================
+# TELEGRAM NOTIFICATIONS
+# =============================================================================
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_CHAT_ID=your_telegram_chat_id_here 

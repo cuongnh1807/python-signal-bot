@@ -245,13 +245,14 @@ class FluxOrderBlockStrategy:
                 take_profit = entry_price * \
                     (1 - self.config.get('take_profit_pct', 0.04))
 
-            # Check distance from current price
+            # Check distance from current price - Only place orders close to current price
             distance_pct = abs((entry_price / current_price) - 1) * 100
-            max_distance = self.config.get('max_distance_pct', 5.0)
+            max_distance = self.config.get(
+                'max_distance_pct', 1.0)  # Changed to 1%
 
             if distance_pct > max_distance:
                 logger.info(
-                    f"{self.symbol}: OB too far ({distance_pct:.1f}%) - skipping")
+                    f"{self.symbol}: OB too far ({distance_pct:.1f}% > {max_distance}%) - skipping")
                 return None
 
             # NEW POSITION SIZING LOGIC - More aggressive with leverage
@@ -467,6 +468,14 @@ class FluxLiveTradingBot:
             symbol = order['symbol']
             ob = order['order_block']
 
+            logger.info(
+                f"🎯 PLACING ORDER: {symbol} {order['side']} at ${order['entry_price']:.4f}")
+            logger.info(
+                f"   Distance from current: {order['distance_pct']:.2f}%")
+            logger.info(f"   Position size: ${order['position_size']:.0f}")
+            logger.info(f"   Stop loss: ${order['stop_loss']:.4f}")
+            logger.info(f"   Take profit: ${order['take_profit']:.4f}")
+
             # Send Telegram notification
             self.telegram.notify_orderblock_signal(
                 symbol=symbol,
@@ -482,17 +491,30 @@ class FluxLiveTradingBot:
 
             if self.config.get('test_mode', True):
                 logger.info(
-                    f"TEST MODE: {symbol} {order['side']} order at {order['entry_price']:.4f}")
+                    f"✅ TEST MODE: {symbol} {order['side']} limit order created")
+                logger.info(f"   Entry: ${order['entry_price']:.4f}")
+                logger.info(
+                    f"   Stop Loss: ${order['stop_loss']:.4f} (-{((order['entry_price']-order['stop_loss'])/order['entry_price']*100):.1f}%)")
+                logger.info(
+                    f"   Take Profit: ${order['take_profit']:.4f} (+{((order['take_profit']-order['entry_price'])/order['entry_price']*100):.1f}%)")
                 order['status'] = 'TEST'
                 order['order_id'] = f"TEST_{int(time.time())}"
                 self.active_orders[symbol].append(order)
                 return True
 
-            # Set leverage
-            self.client.futures_change_leverage(
-                symbol=symbol,
-                leverage=order['leverage']
-            )
+            # LIVE MODE - Place actual orders
+            logger.info(
+                f"🔴 LIVE MODE: Placing {symbol} {order['side']} order on Binance...")
+
+            # Set leverage first
+            try:
+                leverage_response = self.client.futures_change_leverage(
+                    symbol=symbol,
+                    leverage=order['leverage']
+                )
+                logger.info(f"   ✅ Leverage set to {order['leverage']}x")
+            except Exception as e:
+                logger.warning(f"   ⚠️ Leverage setting failed: {e}")
 
             # Calculate quantity
             quantity = order['position_size'] / order['entry_price']
@@ -500,10 +522,13 @@ class FluxLiveTradingBot:
                 quantity, self.symbol_info[symbol]['quantityPrecision'])
 
             if quantity <= 0:
-                logger.warning(f"Invalid quantity for {symbol}: {quantity}")
+                logger.warning(f"❌ Invalid quantity for {symbol}: {quantity}")
                 return False
 
-            # Place limit order
+            # Place main limit order
+            logger.info(
+                f"   📝 Creating limit order: {quantity:.6f} {symbol} at ${order['entry_price']:.4f}")
+
             response = self.client.futures_create_order(
                 symbol=symbol,
                 side='BUY' if order['side'] == 'LONG' else 'SELL',
@@ -521,13 +546,22 @@ class FluxLiveTradingBot:
             order['quantity'] = quantity
             self.active_orders[symbol].append(order)
 
+            logger.info(f"✅ LIMIT ORDER PLACED:")
+            logger.info(f"   Order ID: {response['orderId']}")
+            logger.info(f"   Symbol: {symbol}")
+            logger.info(f"   Side: {order['side']}")
+            logger.info(f"   Quantity: {quantity:.6f}")
+            logger.info(f"   Price: ${order['entry_price']:.4f}")
             logger.info(
-                f"Placed {symbol} {order['side']} order: {response['orderId']}")
+                f"   Stop Loss will be placed after fill: ${order['stop_loss']:.4f}")
+            logger.info(
+                f"   Take Profit will be placed after fill: ${order['take_profit']:.4f}")
+
             return True
 
         except Exception as e:
             logger.error(
-                f"Error placing order for {order.get('symbol', 'unknown')}: {e}")
+                f"❌ ERROR placing order for {order.get('symbol', 'unknown')}: {e}")
             return False
 
     def _check_orders(self):
@@ -624,8 +658,13 @@ class FluxLiveTradingBot:
             symbol = order['symbol']
             quantity = order['quantity']
 
+            logger.info(f"📋 PLACING EXIT ORDERS for {symbol} {order['side']}:")
+            logger.info(f"   Quantity: {quantity:.6f}")
+
             # Place stop loss
-            self.client.futures_create_order(
+            logger.info(
+                f"   📉 Creating STOP LOSS at ${order['stop_loss']:.4f}")
+            sl_response = self.client.futures_create_order(
                 symbol=symbol,
                 side='SELL' if order['side'] == 'LONG' else 'BUY',
                 type='STOP_MARKET',
@@ -636,9 +675,13 @@ class FluxLiveTradingBot:
                 ),
                 closePosition=True
             )
+            logger.info(
+                f"   ✅ STOP LOSS placed: Order ID {sl_response['orderId']}")
 
             # Place take profit
-            self.client.futures_create_order(
+            logger.info(
+                f"   📈 Creating TAKE PROFIT at ${order['take_profit']:.4f}")
+            tp_response = self.client.futures_create_order(
                 symbol=symbol,
                 side='SELL' if order['side'] == 'LONG' else 'BUY',
                 type='TAKE_PROFIT_MARKET',
@@ -648,11 +691,17 @@ class FluxLiveTradingBot:
                     float(self.symbol_info[symbol]['tickSize'])
                 )
             )
+            logger.info(
+                f"   ✅ TAKE PROFIT placed: Order ID {tp_response['orderId']}")
 
-            logger.info(f"Placed exit orders for {symbol}")
+            # Store exit order IDs
+            order['stop_loss_id'] = sl_response['orderId']
+            order['take_profit_id'] = tp_response['orderId']
+
+            logger.info(f"✅ ALL EXIT ORDERS PLACED for {symbol}")
 
         except Exception as e:
-            logger.error(f"Error placing exit orders: {e}")
+            logger.error(f"❌ ERROR placing exit orders for {symbol}: {e}")
 
     def _check_positions(self):
         """Check position status and simulate exits in test mode"""
@@ -894,7 +943,7 @@ def load_config() -> Dict:
         'leverage': int(os.getenv('LEVERAGE', '10')),
         'stop_loss_pct': float(os.getenv('STOP_LOSS_PCT', '2.0')) / 100,
         'take_profit_pct': float(os.getenv('TAKE_PROFIT_PCT', '4.0')) / 100,
-        'max_distance_pct': float(os.getenv('MAX_DISTANCE_PCT', '5.0')),
+        'max_distance_pct': float(os.getenv('MAX_DISTANCE_PCT', '1.0')),
 
         # Order management
         'max_orders_per_symbol': int(os.getenv('MAX_ORDERS_PER_SYMBOL', '2')),

@@ -58,8 +58,8 @@ STOP_LOSS_PCT=2.0
 # Take profit percentage (4% from entry)  
 TAKE_PROFIT_PCT=4.0
 
-# Maximum distance from current price to place order (5%)
-MAX_DISTANCE_PCT=5.0
+# Maximum distance from current price to place order (1% to avoid spam)
+MAX_DISTANCE_PCT=1.0
 
 # =============================================================================
 # ORDER MANAGEMENT

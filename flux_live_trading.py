@@ -858,9 +858,8 @@ def main():
     config = load_config()
 
     # Symbols to trade
-    symbols_str = os.getenv('TRADING_SYMBOLS', 'BTCUSDT,ETHUSDT,ADAUSDT')
-    symbols = [s.strip() for s in symbols_str.split(',')]
-
+    symbols = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT',
+               'BTCDOMUSDT', 'SOLUSDT', 'BNBUSDT']
     # Create and start bot
     bot = FluxLiveTradingBot(symbols=symbols, config=config)
 

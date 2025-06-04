@@ -672,9 +672,9 @@ def evaluate_breaker_obs(order_blocks, current_ob, current_idx):
     return breaker_analysis
 
 
-def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use_evaluation=True):
+def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use_evaluation=True, htf_data=None):
     """
-    Evaluate Flux Chart order block entry quality
+    Enhanced Flux Chart order block entry quality evaluation with 4h timeframe analysis
 
     Parameters:
     - df: DataFrame with OHLCV data
@@ -682,6 +682,7 @@ def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use
     - current_idx: Current bar index
     - all_order_blocks: List of all order blocks for breaker analysis
     - use_evaluation: If False, always return positive evaluation
+    - htf_data: Higher timeframe (4h) data for confluence analysis
 
     Returns:
     - tuple: (should_take_entry: bool, analysis_result: dict)
@@ -699,42 +700,70 @@ def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use
     ob_direction_str = order_block.ob_type.upper()
     warnings = []
 
-    # 1. Trend Analysis (40% weight)
-    trend_analysis = analyze_trend_confluence(df, current_idx)
+    # 1. Enhanced Trend Analysis with 4h Confluence (40% weight)
+    trend_analysis = analyze_enhanced_trend_confluence(
+        df, current_idx, htf_data)
     trend_score = 0
 
+    # Primary timeframe trend assessment
+    primary_trend_bonus = 0
     if trend_analysis['primary_trend'] == 'bullish' and ob_direction == 1:
         # Bullish OB in bullish trend
-        trend_score = 60 + (trend_analysis['confluence_score'] * 0.4)
-        if trend_analysis['supporting_timeframes'] >= 2:
-            trend_score += 20
+        primary_trend_bonus = 60
     elif trend_analysis['primary_trend'] == 'bearish' and ob_direction == -1:
         # Bearish OB in bearish trend
-        trend_score = 60 + (trend_analysis['confluence_score'] * 0.4)
-        if trend_analysis['supporting_timeframes'] >= 2:
-            trend_score += 20
+        primary_trend_bonus = 60
     elif trend_analysis['primary_trend'] == 'bullish' and ob_direction == -1:
         # Counter-trend bearish OB - potential reversal
         if trend_analysis['trend_change_detected']:
-            trend_score = 70  # Strong reversal signal
+            primary_trend_bonus = 70  # Strong reversal signal
         else:
-            trend_score = 30  # Risky counter-trend
+            primary_trend_bonus = 30  # Risky counter-trend
             warnings.append("Counter-trend bearish OB in bullish market")
     elif trend_analysis['primary_trend'] == 'bearish' and ob_direction == 1:
         # Counter-trend bullish OB - potential reversal
         if trend_analysis['trend_change_detected']:
-            trend_score = 70  # Strong reversal signal
+            primary_trend_bonus = 70  # Strong reversal signal
         else:
-            trend_score = 30  # Risky counter-trend
+            primary_trend_bonus = 30  # Risky counter-trend
             warnings.append("Counter-trend bullish OB in bearish market")
     else:
         # Neutral trend
-        trend_score = 50
+        primary_trend_bonus = 50
+
+    # Higher timeframe confluence bonus
+    htf_confluence_bonus = 0
+    if htf_data is not None and len(htf_data) > 0:
+        htf_trend = trend_analysis.get('htf_trend', 'neutral')
+        htf_strength = trend_analysis.get('htf_strength', 0)
+
+        if htf_trend == 'bullish' and ob_direction == 1:
+            htf_confluence_bonus = 25 + \
+                (htf_strength * 0.15)  # Up to 37 points
+        elif htf_trend == 'bearish' and ob_direction == -1:
+            htf_confluence_bonus = 25 + \
+                (htf_strength * 0.15)  # Up to 37 points
+        elif htf_trend != 'neutral' and ((htf_trend == 'bullish' and ob_direction == -1) or (htf_trend == 'bearish' and ob_direction == 1)):
+            # HTF opposes OB direction
+            htf_confluence_bonus = -15
+            warnings.append(f"4h trend ({htf_trend}) opposes OB direction")
+        else:
+            htf_confluence_bonus = 5  # Neutral HTF
+
+        # Additional bonus for strong multi-timeframe confluence
+        if trend_analysis.get('supporting_timeframes', 0) >= 2:
+            htf_confluence_bonus += 10
+    else:
+        # No HTF data available
+        htf_confluence_bonus = 0
+        warnings.append("No 4h data available for confluence")
+
+    trend_score = min(primary_trend_bonus + htf_confluence_bonus, 100)
 
     # 2. Market Structure Score (25% weight)
     structure_score = 50  # Default neutral
 
-    # Simple market structure: higher highs/lows for bullish, lower highs/lows for bearish
+    # Enhanced market structure: higher highs/lows for bullish, lower highs/lows for bearish
     if current_idx >= 20:
         recent_data = df.iloc[current_idx-20:current_idx+1]
         highs = recent_data['high']
@@ -748,22 +777,26 @@ def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use
 
         if ob_direction == 1:  # Bullish OB
             if recent_high > prev_high and recent_low > prev_low:
-                structure_score = 80  # Higher highs and higher lows
+                structure_score = 85  # Higher highs and higher lows
             elif recent_high > prev_high:
-                structure_score = 65  # Just higher highs
+                structure_score = 70  # Just higher highs
             elif recent_low < prev_low:
-                structure_score = 35  # Lower lows - concerning for bullish
+                structure_score = 30  # Lower lows - concerning for bullish
                 warnings.append("Market making lower lows")
+            else:
+                structure_score = 55  # Neutral structure
         else:  # Bearish OB
             if recent_high < prev_high and recent_low < prev_low:
-                structure_score = 80  # Lower highs and lower lows
+                structure_score = 85  # Lower highs and lower lows
             elif recent_low < prev_low:
-                structure_score = 65  # Just lower lows
+                structure_score = 70  # Just lower lows
             elif recent_high > prev_high:
-                structure_score = 35  # Higher highs - concerning for bearish
+                structure_score = 30  # Higher highs - concerning for bearish
                 warnings.append("Market making higher highs")
+            else:
+                structure_score = 55  # Neutral structure
 
-    # 3. Breaker Analysis (20% weight)
+    # 3. Enhanced Breaker Analysis (20% weight)
     breaker_score = 50  # Default neutral
     if all_order_blocks:
         breaker_analysis = evaluate_breaker_obs(
@@ -776,21 +809,49 @@ def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use
             confluence_ratio = breaker_analysis['confluence_breakers'] / \
                 breaker_analysis['recent_breakers']
 
-            if confluence_ratio > 0.6:
-                breaker_score = 70  # Most recent breakers support current direction
-            elif opposing_ratio > 0.6:
-                breaker_score = 30  # Most recent breakers oppose current direction
+            if confluence_ratio > 0.7:
+                breaker_score = 80  # Most recent breakers support current direction
+            elif confluence_ratio > 0.5:
+                breaker_score = 65  # Moderate support
+            elif opposing_ratio > 0.7:
+                breaker_score = 25  # Most recent breakers oppose current direction
                 warnings.append(
                     f"{breaker_analysis['opposing_breakers']} recent opposing breakers")
+            elif opposing_ratio > 0.5:
+                breaker_score = 40  # Some opposition
+            else:
+                breaker_score = 55  # Mixed signals
 
-    # 4. Volume & Momentum (15% weight)
+            # Boost score if breaker strength is high
+            if breaker_analysis['breaker_strength'] > 50:
+                breaker_score += 10
+
+    # 4. Enhanced Volume & Momentum (15% weight)
     volume_score = 50
     if hasattr(order_block, 'ob_volume') and order_block.ob_volume > 0:
         # Use relative volume strength
         if current_idx >= 20:
             avg_volume = df['volume'].iloc[current_idx-20:current_idx].mean()
             volume_ratio = order_block.ob_volume / avg_volume if avg_volume > 0 else 1
-            volume_score = min(volume_ratio * 50, 100)
+
+            if volume_ratio >= 2.0:
+                volume_score = 90  # Exceptional volume
+            elif volume_ratio >= 1.5:
+                volume_score = 75  # High volume
+            elif volume_ratio >= 1.2:
+                volume_score = 60  # Above average
+            elif volume_ratio >= 0.8:
+                volume_score = 45  # Below average
+            else:
+                volume_score = 30  # Low volume
+                warnings.append("Below average volume")
+
+        # Additional momentum check using recent price action
+        if current_idx >= 5:
+            recent_momentum = df['close'].iloc[current_idx] - \
+                df['close'].iloc[current_idx-5]
+            if (ob_direction == 1 and recent_momentum > 0) or (ob_direction == -1 and recent_momentum < 0):
+                volume_score += 10  # Momentum supports direction
 
     # Calculate weighted final score
     weights = {
@@ -807,7 +868,7 @@ def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use
         volume_score * weights['volume']
     )
 
-    # Adaptive threshold based on market conditions
+    # Enhanced Adaptive threshold based on market conditions
     base_threshold = 45
 
     # Increase threshold for counter-trend setups
@@ -816,28 +877,35 @@ def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use
         if not trend_analysis['trend_change_detected']:
             base_threshold = 65  # Higher bar for counter-trend
 
+    # Increase threshold if HTF opposes
+    if htf_data is not None and trend_analysis.get('htf_trend', 'neutral') != 'neutral':
+        htf_trend = trend_analysis['htf_trend']
+        if ((htf_trend == 'bullish' and ob_direction == -1) or
+                (htf_trend == 'bearish' and ob_direction == 1)):
+            base_threshold += 20  # Much higher bar for HTF opposing setups
+
     # Increase threshold if many recent opposing breakers
     if all_order_blocks:
         breaker_analysis = evaluate_breaker_obs(
             all_order_blocks, order_block, current_idx)
         if (breaker_analysis['recent_breakers'] > 0 and
-                breaker_analysis['opposing_breakers'] / breaker_analysis['recent_breakers'] > 0.5):
+                breaker_analysis['opposing_breakers'] / breaker_analysis['recent_breakers'] > 0.6):
             base_threshold += 15
 
-    threshold = min(base_threshold, 75)
+    threshold = min(base_threshold, 80)
 
-    # Determine entry quality
+    # Determine entry quality based on enhanced scoring
     setup_quality = final_score
-    if setup_quality >= 80:
+    if setup_quality >= 85:
         entry_quality = "Excellent"
         risk_level = "Low"
-    elif setup_quality >= 65:
+    elif setup_quality >= 70:
         entry_quality = "Good"
         risk_level = "Low-Medium"
-    elif setup_quality >= 50:
+    elif setup_quality >= 55:
         entry_quality = "Moderate"
         risk_level = "Medium"
-    elif setup_quality >= 35:
+    elif setup_quality >= 40:
         entry_quality = "Poor"
         risk_level = "High"
     else:
@@ -846,23 +914,31 @@ def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use
 
     should_take_entry = final_score >= threshold
 
-    # Debug output
+    # Enhanced debug output
     if should_take_entry:
-        print(f"✅ GOOD FLUX ENTRY {ob_direction_str}: Score {final_score:.1f} | "
+        print(f"✅ EXCELLENT FLUX ENTRY {ob_direction_str}: Score {final_score:.1f} | "
               f"Trend: {trend_score:.1f}, Structure: {structure_score:.1f}, "
               f"Breaker: {breaker_score:.1f}, Volume: {volume_score:.1f}")
+        if htf_data is not None:
+            htf_trend = trend_analysis.get('htf_trend', 'neutral')
+            print(
+                f"   📈 4h Trend: {htf_trend.title()} (Strength: {trend_analysis.get('htf_strength', 0):.0f})")
         if trend_analysis['trend_change_detected']:
-            print(f"   🔄 Trend change detected - good reversal setup")
+            print(f"   🔄 Trend change detected - potential reversal setup")
         if trend_analysis['supporting_timeframes'] >= 2:
             print(
-                f"   📈 {trend_analysis['supporting_timeframes']} supporting timeframes")
+                f"   📊 {trend_analysis['supporting_timeframes']} supporting timeframes")
     else:
         print(
-            f"❌ SKIP FLUX ENTRY {ob_direction_str}: Score {final_score:.1f} < {threshold:.1f}")
+            f"❌ REJECTED FLUX ENTRY {ob_direction_str}: Score {final_score:.1f} < {threshold:.1f}")
+        if htf_data is not None:
+            htf_trend = trend_analysis.get('htf_trend', 'neutral')
+            print(f"   📈 4h Trend: {htf_trend.title()} (conflicts with setup)" if htf_trend !=
+                  'neutral' else f"   📈 4h Trend: Neutral")
         for warning in warnings:
             print(f"   ⚠️  {warning}")
 
-    # Compile result
+    # Enhanced result compilation
     result = {
         "setup_quality": setup_quality,
         "final_score": final_score,
@@ -879,12 +955,165 @@ def evaluate_flux_entry(df, order_block, current_idx, all_order_blocks=None, use
         "trend_analysis": trend_analysis,
         "confluence": {
             "primary_trend": trend_analysis['primary_trend'],
+            "htf_trend": trend_analysis.get('htf_trend', 'neutral'),
+            "htf_strength": trend_analysis.get('htf_strength', 0),
             "supporting_timeframes": trend_analysis['supporting_timeframes'],
-            "trend_change": trend_analysis['trend_change_detected']
+            "trend_change": trend_analysis['trend_change_detected'],
+            "confluence_score": trend_analysis.get('confluence_score', 50)
         }
     }
 
     return should_take_entry, result
+
+
+def analyze_enhanced_trend_confluence(df: pd.DataFrame, current_idx: int, htf_data: pd.DataFrame = None):
+    """
+    Enhanced trend analysis with 4h timeframe support for Flux OrderBlocks
+
+    Parameters:
+    - df: Primary timeframe data
+    - current_idx: Current bar index
+    - htf_data: 4h timeframe data for confluence
+
+    Returns:
+    - dict: Enhanced trend analysis results
+    """
+    trend_analysis = {
+        'primary_trend': 'neutral',
+        'trend_strength': 0,
+        'confluence_score': 50,
+        'trend_change_detected': False,
+        'supporting_timeframes': 0,
+        'htf_trend': 'neutral',
+        'htf_strength': 0
+    }
+
+    if current_idx < 50:
+        return trend_analysis
+
+    # Calculate EMAs for trend analysis on primary timeframe
+    ema_periods = [21, 50, 100]
+    trend_votes = {'bullish': 0, 'bearish': 0, 'neutral': 0}
+
+    for period in ema_periods:
+        if current_idx >= period:
+            ema = df['close'].rolling(window=period).mean()
+            current_price = df['close'].iloc[current_idx]
+            ema_current = ema.iloc[current_idx]
+            ema_prev = ema.iloc[current_idx -
+                                5] if current_idx >= 5 else ema_current
+
+            # Trend direction based on price vs EMA and EMA slope
+            if current_price > ema_current and ema_current > ema_prev:
+                trend_votes['bullish'] += 1
+            elif current_price < ema_current and ema_current < ema_prev:
+                trend_votes['bearish'] += 1
+            else:
+                trend_votes['neutral'] += 1
+
+    # Determine primary trend
+    max_votes = max(trend_votes.values())
+    if trend_votes['bullish'] == max_votes and trend_votes['bullish'] >= 2:
+        trend_analysis['primary_trend'] = 'bullish'
+        trend_analysis['trend_strength'] = (trend_votes['bullish'] / 3) * 100
+    elif trend_votes['bearish'] == max_votes and trend_votes['bearish'] >= 2:
+        trend_analysis['primary_trend'] = 'bearish'
+        trend_analysis['trend_strength'] = (trend_votes['bearish'] / 3) * 100
+
+    # Enhanced 4h timeframe analysis
+    if htf_data is not None and len(htf_data) > 21:
+        try:
+            # Calculate 4h EMAs
+            htf_ema_21 = htf_data['close'].rolling(window=21).mean()
+            htf_ema_50 = htf_data['close'].rolling(window=50).mean()
+            htf_ema_100 = htf_data['close'].rolling(
+                window=100).mean() if len(htf_data) > 100 else htf_ema_50
+
+            if len(htf_ema_21) > 1 and len(htf_ema_50) > 1:
+                htf_current_price = htf_data['close'].iloc[-1]
+                htf_ema21_current = htf_ema_21.iloc[-1]
+                htf_ema50_current = htf_ema_50.iloc[-1]
+                htf_ema100_current = htf_ema_100.iloc[-1]
+
+                # Enhanced HTF trend determination with strength calculation
+                htf_score = 0
+
+                # Price position relative to EMAs
+                if htf_current_price > htf_ema21_current:
+                    htf_score += 30
+                if htf_current_price > htf_ema50_current:
+                    htf_score += 25
+                if len(htf_data) > 100 and htf_current_price > htf_ema100_current:
+                    htf_score += 25
+
+                # EMA alignment
+                if htf_ema21_current > htf_ema50_current:
+                    htf_score += 10
+                if len(htf_data) > 100 and htf_ema50_current > htf_ema100_current:
+                    htf_score += 10
+
+                # Determine HTF trend and strength
+                if htf_score >= 70:
+                    trend_analysis['htf_trend'] = 'bullish'
+                    trend_analysis['htf_strength'] = min(htf_score, 100)
+                elif htf_score <= 30:
+                    trend_analysis['htf_trend'] = 'bearish'
+                    trend_analysis['htf_strength'] = min(100 - htf_score, 100)
+                else:
+                    trend_analysis['htf_trend'] = 'neutral'
+                    trend_analysis['htf_strength'] = 50
+
+                # Enhanced confluence calculation
+                supporting_count = 0
+                if trend_analysis['primary_trend'] == trend_analysis['htf_trend'] and trend_analysis['htf_trend'] != 'neutral':
+                    # Strong confluence
+                    supporting_count = 3
+                    confluence_bonus = trend_analysis['htf_strength'] * 0.4
+                    trend_analysis['confluence_score'] = 70 + confluence_bonus
+                elif trend_analysis['primary_trend'] != 'neutral' and trend_analysis['htf_trend'] != 'neutral':
+                    # Conflicting trends
+                    supporting_count = 0
+                    trend_analysis['confluence_score'] = 25
+                else:
+                    # One neutral
+                    supporting_count = 1
+                    trend_analysis['confluence_score'] = 50
+
+                trend_analysis['supporting_timeframes'] = supporting_count
+
+        except Exception as e:
+            print(f"Warning: HTF analysis failed: {e}")
+            # Fallback to primary timeframe only
+            trend_analysis['htf_trend'] = 'neutral'
+            trend_analysis['htf_strength'] = 0
+
+    # Enhanced trend change detection with HTF consideration
+    if current_idx >= 10:
+        recent_highs = df['high'].iloc[current_idx-10:current_idx+1].max()
+        recent_lows = df['low'].iloc[current_idx-10:current_idx+1].min()
+        current_close = df['close'].iloc[current_idx]
+
+        # Check for potential reversal patterns
+        reversal_threshold = 0.7 if trend_analysis['primary_trend'] == 'bearish' else 0.3
+
+        if (trend_analysis['primary_trend'] == 'bearish' and
+                current_close > (recent_lows + (recent_highs - recent_lows) * reversal_threshold)):
+            trend_analysis['trend_change_detected'] = True
+        elif (trend_analysis['primary_trend'] == 'bullish' and
+              current_close < (recent_lows + (recent_highs - recent_lows) * reversal_threshold)):
+            trend_analysis['trend_change_detected'] = True
+
+        # HTF support for trend change
+        if (trend_analysis['trend_change_detected'] and htf_data is not None and
+                trend_analysis['htf_trend'] != 'neutral'):
+            # If HTF supports the potential reversal, boost confidence
+            primary_reversing_to = 'bullish' if trend_analysis[
+                'primary_trend'] == 'bearish' else 'bearish'
+            if trend_analysis['htf_trend'] == primary_reversing_to:
+                # HTF supports reversal
+                trend_analysis['confluence_score'] += 15
+
+    return trend_analysis
 
 
 if __name__ == "__main__":
@@ -920,7 +1149,7 @@ if __name__ == "__main__":
         args.symbol,
         interval=args.interval,
         start_str=int(start_time.timestamp() * 1000),
-        end_str=int((datetime.now()).timestamp() * 1000)
+        end_str=int((datetime.now() - timedelta(days=6)).timestamp() * 1000)
     )
 
     # Process data

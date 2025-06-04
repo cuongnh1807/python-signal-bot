@@ -112,7 +112,7 @@ class TelegramNotifier:
                     f"Trend: <b>{conf['primary_trend'].title()}</b>\n"
                     f"Supporting TFs: <b>{conf['supporting_timeframes']}/3</b>\n"
                 )
-                if conf['trend_change']:
+                if conf['trend_change_detected']:
                     message += "🔄 <b>Trend Change Detected</b>\n"
 
             if hasattr(ob, 'warnings') and ob.warnings:

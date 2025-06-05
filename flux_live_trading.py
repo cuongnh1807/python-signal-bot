@@ -143,8 +143,8 @@ class TelegramNotifier:
         self.send_message(message, topic_id=os.getenv(
             'TELEGRAM_SIGNALS_TOPIC_ID', "6"))
 
-    def notify_fill(self, symbol: str, side: str, price: float, quantity: float):
-        """Notify about order fill"""
+    def notify_fill(self, symbol: str, side: str, price: float, quantity: float, order: dict = None):
+        """Notify about order fill, including TP/SL and (if available) a reference to the original order message."""
         emoji = "✅"
         message = (
             f"{emoji} <b>Order Filled</b>\n\n"
@@ -153,6 +153,17 @@ class TelegramNotifier:
             f"Price: <b>${price:.4f}</b>\n"
             f"Quantity: <b>{quantity:.6f}</b>"
         )
+        # Add TP/SL if available
+        if order is not None:
+            if 'take_profit' in order:
+                message += f"\nTake Profit: <b>${order['take_profit']:.4f}</b>"
+            if 'stop_loss' in order:
+                message += f"\nStop Loss: <b>${order['stop_loss']:.4f}</b>"
+            # Add reference to order message if available
+            if 'order_message_id' in order:
+                chat_id = self.chat_id
+                msg_id = order['order_message_id']
+                message += f"\n<a href='https://t.me/c/{str(chat_id).replace('-100', '')}/{msg_id}'>View Order</a>"
         self.send_message(message, topic_id=os.getenv(
             'TELEGRAM_SIGNALS_TOPIC_ID', "6"))
 
@@ -994,7 +1005,8 @@ class EnhancedOrderBlockBot:
                     symbol=symbol,
                     side=order['side'],
                     price=order['entry_price'],
-                    quantity=order.get('quantity', 0)
+                    quantity=order.get('quantity', 0),
+                    order=order
                 )
 
                 logger.info(
@@ -1031,7 +1043,8 @@ class EnhancedOrderBlockBot:
                             symbol=symbol,
                             side=order['side'],
                             price=order['fill_price'],
-                            quantity=order.get('quantity', 0)
+                            quantity=order.get('quantity', 0),
+                            order=order
                         )
                     else:
                         # Order cancelled/rejected

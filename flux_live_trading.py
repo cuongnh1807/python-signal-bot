@@ -112,7 +112,7 @@ class TelegramNotifier:
                     f"Trend: <b>{conf['primary_trend'].title()}</b>\n"
                     f"Supporting TFs: <b>{conf['supporting_timeframes']}/3</b>\n"
                 )
-                if conf['trend_change_detected']:
+                if conf['trend_change']:
                     message += "🔄 <b>Trend Change Detected</b>\n"
 
             if hasattr(ob, 'warnings') and ob.warnings:
@@ -327,7 +327,8 @@ class EnhancedOrderBlockStrategy:
                     bearish_ob_count=self.config.get('max_bearish_obs', 5),
                     use_entry_evaluation=self.config.get(
                         'use_entry_evaluation', True),
-                    entry_threshold=self.config.get('entry_threshold', 45)
+                    entry_threshold=self.config.get('entry_threshold', 45),
+                    htf_data=htf_data
                 )
             elif self.algorithm == 'breaker':
                 order_blocks = detect_order_breaker_blocks(
@@ -339,7 +340,8 @@ class EnhancedOrderBlockStrategy:
                     bearish_ob_count=self.config.get('max_bearish_obs', 5),
                     use_entry_evaluation=self.config.get(
                         'use_entry_evaluation', True),
-                    entry_threshold=self.config.get('entry_threshold', 45)
+                    entry_threshold=self.config.get('entry_threshold', 45),
+                    htf_data=htf_data
                 )
             else:
                 logger.error(f"Unknown orderblock algorithm: {self.algorithm}")

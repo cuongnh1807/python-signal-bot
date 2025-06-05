@@ -96,7 +96,7 @@ def find_swing_points(df, swing_length):
 def detect_flux_order_blocks(df, swing_length=10, max_atr_mult=3.5, max_order_blocks=30,
                              ob_end_method="Wick", max_distance_to_last_bar=1750,
                              bullish_ob_count=10, bearish_ob_count=10,
-                             use_entry_evaluation=True, entry_threshold=45):
+                             use_entry_evaluation=True, entry_threshold=45, htf_data=None):
     """
     Detect order blocks using the exact Flux Chart algorithm from Pine Script
 
@@ -241,7 +241,7 @@ def detect_flux_order_blocks(df, swing_length=10, max_atr_mult=3.5, max_order_bl
                         # Evaluate entry quality
                         if use_entry_evaluation:
                             should_take, eval_result = evaluate_flux_entry(
-                                df, ob_info, bar_idx, all_order_blocks, use_entry_evaluation
+                                df, ob_info, bar_idx, all_order_blocks, use_entry_evaluation, htf_data
                             )
 
                             if should_take:

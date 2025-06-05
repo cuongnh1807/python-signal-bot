@@ -1334,7 +1334,7 @@ def load_config() -> Dict:
         'orderblock_algorithm': 'flux',  # 'flux' or 'breaker'
 
         # Trading parameters
-        'test_mode': True,
+        'test_mode': False,
         'test_capital': 1000.0,
         'max_capital': 5000.0,
         'interval': '15m',

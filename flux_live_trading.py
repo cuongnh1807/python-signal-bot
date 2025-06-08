@@ -47,8 +47,9 @@ class TelegramNotifier:
                 "🚀 <b>Enhanced OrderBlock Trading Bot Started</b>")
 
     def send_message(self, message: str, topic_id: str = None):
+        """Send message and return message_id for reference"""
         if not self.enabled or not self.bot_token or not self.chat_id:
-            return
+            return None
 
         try:
             data = {
@@ -59,16 +60,21 @@ class TelegramNotifier:
             if topic_id:
                 data["message_thread_id"] = topic_id
             response = requests.post(self.base_url, data=data)
-            if response.status_code != 200:
+            if response.status_code == 200:
+                result = response.json()
+                return result.get('result', {}).get('message_id')
+            else:
                 logger.error(f"Telegram error: {response.text}")
+                return None
         except Exception as e:
             logger.error(f"Telegram send error: {e}")
+            return None
 
     def notify_orderblock_signal(self, symbol: str, ob: OrderBlockInfo, entry_price: float,
                                  stop_loss: float, take_profit: float, position_size: float,
                                  margin_required: float = None, risk_amount: float = None,
                                  leverage: int = 10, algorithm: str = "flux"):
-        """Notify about new order block signal"""
+        """Notify about new order block signal and return message_id"""
         emoji = "🟢" if ob.ob_type == "Bull" else "🔴"
         side = "LONG" if ob.ob_type == "Bull" else "SHORT"
 
@@ -129,41 +135,49 @@ class TelegramNotifier:
             f"Created: <b>{ob.start_time.strftime('%m-%d %H:%M')}</b>"
         )
 
-        self.send_message(message, topic_id=os.getenv(
+        # Send message and return message_id for reference
+        message_id = self.send_message(message, topic_id=os.getenv(
             'TELEGRAM_ORDERS_TOPIC_ID', "5"))
+        return message_id
 
     def notify_order_cancelled(self, symbol: str, reason: str, order_info: str):
-        """Notify about order cancellation"""
-        message = (
-            f"❌ <b>Order Cancelled</b>\n\n"
-            f"Symbol: <b>{symbol}</b>\n"
-            f"Reason: <b>{reason}</b>\n"
-            f"Details: {order_info}"
-        )
-        self.send_message(message, topic_id=os.getenv(
-            'TELEGRAM_SIGNALS_TOPIC_ID', "6"))
+        """Notify about order cancellation - DISABLED per user request"""
+        # User requested to disable cancel order notifications
+        logger.info(
+            f"Order cancelled notification disabled: {symbol} - {reason}")
+        return
 
     def notify_fill(self, symbol: str, side: str, price: float, quantity: float, order: dict = None):
-        """Notify about order fill, including TP/SL and (if available) a reference to the original order message."""
+        """Notify about order fill with reference to original order message"""
         emoji = "✅"
         message = (
-            f"{emoji} <b>Order Filled</b>\n\n"
+            f"{emoji} <b>🎯 ORDER FILLED</b>\n\n"
             f"Symbol: <b>{symbol}</b>\n"
             f"Side: <b>{side}</b>\n"
             f"Price: <b>${price:.4f}</b>\n"
             f"Quantity: <b>{quantity:.6f}</b>"
         )
+
         # Add TP/SL if available
         if order is not None:
             if 'take_profit' in order:
                 message += f"\nTake Profit: <b>${order['take_profit']:.4f}</b>"
             if 'stop_loss' in order:
                 message += f"\nStop Loss: <b>${order['stop_loss']:.4f}</b>"
-            # Add reference to order message if available
-            if 'order_message_id' in order:
-                chat_id = self.chat_id
+
+            # Add reference to original order message for easy forwarding
+            if 'order_message_id' in order and order['order_message_id']:
+                # Extract chat ID without -100 prefix for URL
+                chat_id_str = str(self.chat_id).replace(
+                    '-100', '') if str(self.chat_id).startswith('-100') else str(self.chat_id)
                 msg_id = order['order_message_id']
-                message += f"\n<a href='https://t.me/c/{str(chat_id).replace('-100', '')}/{msg_id}'>View Order</a>"
+                message += f"\n\n📌 <b>Reference:</b> <a href='https://t.me/c/{chat_id_str}/{msg_id}'>Original Order Signal</a>"
+                message += f"\n<i>💡 You can forward the original order message for context</i>"
+
+            # Add algorithm info
+            if 'algorithm' in order:
+                message += f"\nAlgorithm: <b>{order['algorithm'].upper()}</b>"
+
         self.send_message(message, topic_id=os.getenv(
             'TELEGRAM_SIGNALS_TOPIC_ID', "6"))
 
@@ -847,12 +861,9 @@ class EnhancedOrderBlockBot:
             if order in self.active_orders[symbol]:
                 self.active_orders[symbol].remove(order)
 
-            # Send notification
-            order_info = f"{order['side']} @ ${order['entry_price']:.4f}"
-            self.telegram.notify_order_cancelled(symbol, reason, order_info)
-
+            # Note: Telegram notification disabled per user request
             logger.info(
-                f"✅ Order removed from tracking: {symbol} {order['side']}")
+                f"✅ Order removed from tracking: {symbol} {order['side']} - No notification sent")
 
         except Exception as e:
             logger.error(f"Error cancelling order: {e}")
@@ -875,7 +886,7 @@ class EnhancedOrderBlockBot:
                 f"   Risk/Reward: {abs(order['take_profit'] - order['entry_price']) / abs(order['entry_price'] - order['stop_loss']):.2f}")
 
             # Send Telegram notification
-            self.telegram.notify_orderblock_signal(
+            message_id = self.telegram.notify_orderblock_signal(
                 symbol=symbol,
                 ob=ob,
                 entry_price=order['entry_price'],
@@ -887,6 +898,10 @@ class EnhancedOrderBlockBot:
                 leverage=order['leverage'],
                 algorithm=algorithm
             )
+
+            # Store message_id for reference in fill notifications
+            if message_id:
+                order['order_message_id'] = message_id
 
             if self.config.get('test_mode', True):
                 logger.info(

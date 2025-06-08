@@ -1149,7 +1149,7 @@ if __name__ == "__main__":
         args.symbol,
         interval=args.interval,
         start_str=int(start_time.timestamp() * 1000),
-        end_str=int((datetime.now() - timedelta(days=6)).timestamp() * 1000)
+        end_str=int((datetime.now()).timestamp() * 1000)
     )
 
     # Process data

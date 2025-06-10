@@ -33,6 +33,368 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class MultiTimeframeDataManager:
+    """Manage data across multiple timeframes for comprehensive analysis"""
+
+    def __init__(self, data_fetcher: BinanceDataFetcher, config: Dict):
+        self.data_fetcher = data_fetcher
+        self.config = config
+        self.timeframes = config.get('timeframes', ['5m', '15m', '1h', '4h'])
+        self.candles_per_tf = config.get('candles_per_timeframe', 500)
+        self.data_cache = {}  # {symbol: {timeframe: {data: df, timestamp: datetime}}}
+        self.cache_duration = 300  # 5 minutes cache
+
+        logger.info(
+            f"🕐 MultiTimeframe Manager initialized: {', '.join(self.timeframes)}")
+        logger.info(f"📊 Candles per timeframe: {self.candles_per_tf}")
+
+    def _get_cache_key(self, symbol: str, timeframe: str) -> str:
+        """Generate cache key for symbol-timeframe combination"""
+        return f"{symbol}_{timeframe}"
+
+    def _is_cache_valid(self, cache_entry: Dict) -> bool:
+        """Check if cache entry is still valid"""
+        if not cache_entry:
+            return False
+
+        cache_age = (datetime.now() - cache_entry['timestamp']).total_seconds()
+        return cache_age < self.cache_duration
+
+    def fetch_timeframe_data(self, symbol: str, timeframe: str) -> pd.DataFrame:
+        """Fetch data for specific symbol and timeframe with caching"""
+        try:
+            cache_key = self._get_cache_key(symbol, timeframe)
+
+            # Check cache first
+            if symbol in self.data_cache and timeframe in self.data_cache[symbol]:
+                cache_entry = self.data_cache[symbol][timeframe]
+                if self._is_cache_valid(cache_entry):
+                    return cache_entry['data'].copy()
+
+            # Calculate start time based on timeframe and required candles
+            timeframe_minutes = {
+                '1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
+                '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '1d': 1440
+            }
+
+            minutes = timeframe_minutes.get(timeframe, 15)
+            lookback_minutes = self.candles_per_tf * minutes
+            start_time = datetime.now() - timedelta(minutes=lookback_minutes + 60)  # Extra buffer
+
+            # Fetch data
+            data = self.data_fetcher.get_historical_klines(
+                symbol=symbol,
+                interval=timeframe,
+                start_time=start_time
+            )
+
+            if data.empty:
+                logger.warning(f"⚠️ No data received for {symbol} {timeframe}")
+                return pd.DataFrame()
+
+            # Limit to requested number of candles
+            if len(data) > self.candles_per_tf:
+                data = data.tail(self.candles_per_tf).reset_index(drop=True)
+
+            # Update cache
+            if symbol not in self.data_cache:
+                self.data_cache[symbol] = {}
+
+            self.data_cache[symbol][timeframe] = {
+                'data': data.copy(),
+                'timestamp': datetime.now()
+            }
+
+            logger.debug(
+                f"📈 Fetched {len(data)} candles for {symbol} {timeframe}")
+            return data
+
+        except Exception as e:
+            logger.error(f"❌ Error fetching {symbol} {timeframe} data: {e}")
+            return pd.DataFrame()
+
+    def fetch_all_timeframes(self, symbol: str) -> Dict[str, pd.DataFrame]:
+        """Fetch data for all configured timeframes for a symbol"""
+        timeframe_data = {}
+
+        for tf in self.timeframes:
+            data = self.fetch_timeframe_data(symbol, tf)
+            if not data.empty:
+                timeframe_data[tf] = data
+            else:
+                logger.warning(f"⚠️ Failed to fetch {symbol} {tf} data")
+
+        logger.info(
+            f"📊 Fetched data for {symbol}: {list(timeframe_data.keys())}")
+        return timeframe_data
+
+    def get_current_prices(self, symbol: str) -> Dict[str, float]:
+        """Get current prices from all timeframes"""
+        prices = {}
+
+        for tf in self.timeframes:
+            data = self.fetch_timeframe_data(symbol, tf)
+            if not data.empty:
+                prices[tf] = data['close'].iloc[-1]
+
+        return prices
+
+    def clear_cache(self, symbol: str = None):
+        """Clear cache for specific symbol or all symbols"""
+        if symbol:
+            if symbol in self.data_cache:
+                del self.data_cache[symbol]
+                logger.info(f"🗑️ Cleared cache for {symbol}")
+        else:
+            self.data_cache.clear()
+            logger.info("🗑️ Cleared all data cache")
+
+
+def analyze_multi_timeframe_trend(timeframe_data: Dict[str, pd.DataFrame]) -> Dict:
+    """
+    Analyze trend across multiple timeframes for better confluence
+
+    Parameters:
+    - timeframe_data: Dict of {timeframe: DataFrame}
+
+    Returns:
+    - Dict with comprehensive trend analysis
+    """
+    analysis = {
+        'overall_trend': 'neutral',
+        'trend_strength': 0,
+        'timeframe_trends': {},
+        'confluence_score': 0,
+        'dominant_timeframe': None,
+        'trend_alignment': 0,
+        'reversal_signals': [],
+        'support_resistance_levels': []
+    }
+
+    if not timeframe_data:
+        return analysis
+
+    # Analyze each timeframe
+    trend_votes = {'bullish': 0, 'bearish': 0, 'neutral': 0}
+    timeframe_scores = {}
+
+    for tf, data in timeframe_data.items():
+        if len(data) < 50:
+            continue
+
+        tf_analysis = analyze_single_timeframe_trend(data, tf)
+        analysis['timeframe_trends'][tf] = tf_analysis
+        timeframe_scores[tf] = tf_analysis['trend_strength']
+
+        # Vote for overall trend
+        if tf_analysis['trend'] == 'bullish':
+            weight = get_timeframe_weight(tf)
+            trend_votes['bullish'] += weight
+        elif tf_analysis['trend'] == 'bearish':
+            weight = get_timeframe_weight(tf)
+            trend_votes['bearish'] += weight
+        else:
+            trend_votes['neutral'] += 1
+
+    # Determine overall trend
+    max_votes = max(trend_votes.values()) if trend_votes.values() else 0
+    if trend_votes['bullish'] == max_votes and trend_votes['bullish'] > 0:
+        analysis['overall_trend'] = 'bullish'
+        analysis['trend_strength'] = trend_votes['bullish']
+    elif trend_votes['bearish'] == max_votes and trend_votes['bearish'] > 0:
+        analysis['overall_trend'] = 'bearish'
+        analysis['trend_strength'] = trend_votes['bearish']
+
+    # Find dominant timeframe (strongest signal)
+    if timeframe_scores:
+        analysis['dominant_timeframe'] = max(timeframe_scores.keys(),
+                                             key=lambda x: timeframe_scores[x])
+
+    # Calculate trend alignment (how many timeframes agree)
+    aligned_count = 0
+    total_count = len(analysis['timeframe_trends'])
+
+    for tf_trend in analysis['timeframe_trends'].values():
+        if tf_trend['trend'] == analysis['overall_trend']:
+            aligned_count += 1
+
+    analysis['trend_alignment'] = (
+        aligned_count / total_count * 100) if total_count > 0 else 0
+
+    # Calculate confluence score
+    analysis['confluence_score'] = calculate_confluence_score(
+        analysis['overall_trend'],
+        analysis['trend_alignment'],
+        analysis['trend_strength'],
+        timeframe_scores
+    )
+
+    # Detect reversal signals
+    analysis['reversal_signals'] = detect_multi_tf_reversals(timeframe_data)
+
+    # Find key support/resistance levels
+    analysis['support_resistance_levels'] = find_multi_tf_levels(
+        timeframe_data)
+
+    return analysis
+
+
+def analyze_single_timeframe_trend(data: pd.DataFrame, timeframe: str) -> Dict:
+    """Analyze trend for a single timeframe"""
+    if len(data) < 50:
+        return {'trend': 'neutral', 'trend_strength': 0, 'confidence': 0}
+
+    # Calculate multiple EMAs
+    data['ema21'] = data['close'].ewm(span=21).mean()
+    data['ema50'] = data['close'].ewm(span=50).mean()
+    data['ema100'] = data['close'].ewm(span=100).mean()
+
+    current_price = data['close'].iloc[-1]
+    ema21 = data['ema21'].iloc[-1]
+    ema50 = data['ema50'].iloc[-1]
+    ema100 = data['ema100'].iloc[-1]
+
+    # EMA slope analysis
+    ema21_slope = (data['ema21'].iloc[-1] - data['ema21'].iloc[-5]) / 5
+    ema50_slope = (data['ema50'].iloc[-1] - data['ema50'].iloc[-10]) / 10
+
+    # Trend determination
+    trend_score = 0
+
+    # Price vs EMAs
+    if current_price > ema21 > ema50 > ema100:
+        trend_score += 40  # Strong bullish alignment
+    elif current_price > ema21 > ema50:
+        trend_score += 25  # Moderate bullish
+    elif current_price > ema21:
+        trend_score += 10  # Weak bullish
+    elif current_price < ema21 < ema50 < ema100:
+        trend_score -= 40  # Strong bearish alignment
+    elif current_price < ema21 < ema50:
+        trend_score -= 25  # Moderate bearish
+    elif current_price < ema21:
+        trend_score -= 10  # Weak bearish
+
+    # EMA slopes
+    if ema21_slope > 0 and ema50_slope > 0:
+        trend_score += 20
+    elif ema21_slope < 0 and ema50_slope < 0:
+        trend_score -= 20
+    elif ema21_slope > 0:
+        trend_score += 10
+    elif ema21_slope < 0:
+        trend_score -= 10
+
+    # Volume confirmation
+    if len(data) >= 20:
+        recent_volume = data['volume'].iloc[-5:].mean()
+        avg_volume = data['volume'].iloc[-20:].mean()
+
+        if recent_volume > avg_volume * 1.2:  # High volume
+            trend_score += 10 if trend_score > 0 else -10
+
+    # Determine trend and confidence
+    if trend_score >= 30:
+        trend = 'bullish'
+        confidence = min(100, abs(trend_score))
+    elif trend_score <= -30:
+        trend = 'bearish'
+        confidence = min(100, abs(trend_score))
+    else:
+        trend = 'neutral'
+        confidence = 100 - abs(trend_score)
+
+    return {
+        'trend': trend,
+        'trend_strength': abs(trend_score),
+        'confidence': confidence,
+        'ema_alignment': current_price > ema21 > ema50 > ema100,
+        'slope_bullish': ema21_slope > 0 and ema50_slope > 0,
+        'trend_score': trend_score
+    }
+
+
+def get_timeframe_weight(timeframe: str) -> float:
+    """Get weight for timeframe in trend voting"""
+    weights = {
+        '1m': 0.5, '3m': 0.7, '5m': 1.0,
+        '15m': 1.5, '30m': 2.0, '1h': 3.0,
+        '2h': 3.5, '4h': 4.0, '6h': 4.5,
+        '8h': 5.0, '12h': 5.5, '1d': 6.0
+    }
+    return weights.get(timeframe, 1.0)
+
+
+def calculate_confluence_score(overall_trend: str, alignment: float,
+                               strength: float, tf_scores: Dict) -> float:
+    """Calculate overall confluence score from multiple timeframes"""
+    if overall_trend == 'neutral':
+        return 50.0
+
+    # Base score from alignment
+    base_score = alignment
+
+    # Boost from trend strength
+    strength_boost = min(20, strength / 2)
+
+    # Boost from higher timeframe agreement
+    htf_boost = 0
+    for tf, score in tf_scores.items():
+        if tf in ['4h', '1d', '12h']:
+            htf_boost += min(15, score / 4)
+
+    confluence_score = base_score + strength_boost + htf_boost
+    return min(100, confluence_score)
+
+
+def detect_multi_tf_reversals(timeframe_data: Dict[str, pd.DataFrame]) -> List[str]:
+    """Detect potential reversal signals across timeframes"""
+    reversal_signals = []
+
+    for tf, data in timeframe_data.items():
+        if len(data) < 20:
+            continue
+
+        # Look for divergences, overextension, etc.
+        recent_high = data['high'].iloc[-10:].max()
+        recent_low = data['low'].iloc[-10:].min()
+        current_price = data['close'].iloc[-1]
+
+        # Check for potential reversal patterns
+        if current_price == recent_high:
+            reversal_signals.append(f"{tf}_potential_top")
+        elif current_price == recent_low:
+            reversal_signals.append(f"{tf}_potential_bottom")
+
+    return reversal_signals
+
+
+def find_multi_tf_levels(timeframe_data: Dict[str, pd.DataFrame]) -> List[Dict]:
+    """Find key support/resistance levels across timeframes"""
+    levels = []
+
+    for tf, data in timeframe_data.items():
+        if len(data) < 50:
+            continue
+
+        # Find recent swing highs and lows
+        highs = data['high'].rolling(window=10).max()
+        lows = data['low'].rolling(window=10).min()
+
+        # Get significant levels
+        recent_high = data['high'].iloc[-20:].max()
+        recent_low = data['low'].iloc[-20:].min()
+
+        levels.append({
+            'timeframe': tf,
+            'resistance': recent_high,
+            'support': recent_low,
+            'strength': get_timeframe_weight(tf)
+        })
+
+    return levels
+
+
 class TelegramNotifier:
     """Telegram notifications for orderblock trading"""
 
@@ -73,7 +435,7 @@ class TelegramNotifier:
     def notify_orderblock_signal(self, symbol: str, ob: OrderBlockInfo, entry_price: float,
                                  stop_loss: float, take_profit: float, position_size: float,
                                  margin_required: float = None, risk_amount: float = None,
-                                 leverage: int = 10, algorithm: str = "flux"):
+                                 leverage: int = 10, algorithm: str = "flux", mtf_analysis: Dict = None):
         """Notify about new order block signal and return message_id"""
         emoji = "🟢" if ob.ob_type == "Bull" else "🔴"
         side = "LONG" if ob.ob_type == "Bull" else "SHORT"
@@ -102,6 +464,40 @@ class TelegramNotifier:
             message += f"Risk Amount: <b>${risk_amount:.0f}</b>\n"
 
         message += f"Risk/Reward: <b>{rr_ratio:.2f}</b>\n━━━━━━━━━━━━━━━━━━━━━━\n"
+
+        # Add multi-timeframe analysis
+        if mtf_analysis:
+            overall_trend = mtf_analysis.get('overall_trend', 'neutral')
+            confluence_score = mtf_analysis.get('confluence_score', 0)
+            trend_alignment = mtf_analysis.get('trend_alignment', 0)
+            dominant_tf = mtf_analysis.get('dominant_timeframe', 'N/A')
+
+            # MTF trend emoji
+            trend_emoji = "🟢" if overall_trend == 'bullish' else "🔴" if overall_trend == 'bearish' else "🟡"
+
+            message += (
+                f"🕐 <b>Multi-Timeframe Analysis</b>\n"
+                f"Overall Trend: {trend_emoji} <b>{overall_trend.upper()}</b>\n"
+                f"Confluence Score: <b>{confluence_score:.0f}%</b>\n"
+                f"Trend Alignment: <b>{trend_alignment:.0f}%</b>\n"
+                f"Dominant TF: <b>{dominant_tf}</b>\n"
+            )
+
+            # Show individual timeframe trends
+            if 'timeframe_trends' in mtf_analysis:
+                tf_trends = mtf_analysis['timeframe_trends']
+                trend_summary = []
+                for tf, data in tf_trends.items():
+                    trend = data.get('trend', 'neutral')
+                    confidence = data.get('confidence', 0)
+                    tf_emoji = "🟢" if trend == 'bullish' else "🔴" if trend == 'bearish' else "🟡"
+                    trend_summary.append(f"{tf_emoji}{tf}")
+
+                if trend_summary:
+                    # Show max 4 TFs
+                    message += f"TF Breakdown: {' '.join(trend_summary[:4])}\n"
+
+            message += "━━━━━━━━━━━━━━━━━━━━━━\n"
 
         # Add entry evaluation metrics if available
         if hasattr(ob, 'entry_score'):
@@ -641,7 +1037,7 @@ class EnhancedOrderBlockBot:
 
     def __init__(self, symbols: List[str], config: Dict):
         """
-        Initialize Enhanced Order Block trading bot
+        Initialize Enhanced Order Block trading bot with multi-timeframe support
 
         Parameters:
         - symbols: List of trading symbols
@@ -659,6 +1055,10 @@ class EnhancedOrderBlockBot:
 
         # Initialize components
         self.data_fetcher = BinanceDataFetcher(client=self.client)
+
+        # Initialize Multi-Timeframe Data Manager
+        self.mtf_manager = MultiTimeframeDataManager(self.data_fetcher, config)
+
         self.telegram = TelegramNotifier(
             bot_token=os.getenv('TELEGRAM_BOT_TOKEN', ''),
             chat_id=os.getenv('TELEGRAM_CHAT_ID', ''),
@@ -673,7 +1073,10 @@ class EnhancedOrderBlockBot:
         self.current_prices = {}
         self.active_orders = {}  # {symbol: [orders]}
         self.open_positions = {}  # {symbol: [positions]}
-        self.htf_data_cache = {}  # Cache for 4h data
+
+        # Multi-timeframe data storage
+        self.mtf_data = {}  # {symbol: {timeframe: dataframe}}
+        self.mtf_analysis = {}  # {symbol: trend_analysis}
 
         # Initialize strategies
         for symbol in symbols:
@@ -681,6 +1084,8 @@ class EnhancedOrderBlockBot:
                 symbol, config)
             self.active_orders[symbol] = []
             self.open_positions[symbol] = []
+            self.mtf_data[symbol] = {}
+            self.mtf_analysis[symbol] = {}
 
         # Get initial capital
         self.initial_capital = self._get_usdt_balance()
@@ -688,8 +1093,11 @@ class EnhancedOrderBlockBot:
         self.config['capital_per_symbol'] = capital_per_symbol
 
         algorithm = config.get('orderblock_algorithm', 'flux').upper()
+        timeframes = ', '.join(config.get(
+            'timeframes', ['5m', '15m', '1h', '4h']))
         logger.info(
             f"Initialized Enhanced OrderBlock Bot ({algorithm}) for {len(symbols)} symbols")
+        logger.info(f"📊 Multi-Timeframes: {timeframes}")
         logger.info(
             f"Total capital: ${self.initial_capital:.2f}, Per symbol: ${capital_per_symbol:.2f}")
 
@@ -729,83 +1137,162 @@ class EnhancedOrderBlockBot:
             return 1000.0
 
     def _fetch_data(self, symbol: str) -> pd.DataFrame:
-        """Fetch historical data for symbol"""
+        """Fetch historical data for symbol - DEPRECATED, use _fetch_multi_timeframe_data instead"""
+        # Keep this method for backward compatibility but prefer MTF approach
+        primary_tf = self.config.get('primary_timeframe', '15m')
+        return self.mtf_manager.fetch_timeframe_data(symbol, primary_tf)
+
+    def _fetch_multi_timeframe_data(self, symbol: str) -> Dict[str, pd.DataFrame]:
+        """Fetch multi-timeframe data for comprehensive analysis"""
         try:
-            start_time = datetime.now() - timedelta(
-                hours=self.config.get('lookback_hours', 168)
-            )
+            # Fetch all configured timeframes
+            timeframe_data = self.mtf_manager.fetch_all_timeframes(symbol)
 
-            data = self.data_fetcher.get_historical_klines(
-                symbol=symbol,
-                interval=self.config.get('interval', '15m'),
-                start_time=start_time
-            )
+            # Update current price from the most liquid timeframe
+            if timeframe_data:
+                primary_tf = self.config.get('primary_timeframe', '15m')
+                if primary_tf in timeframe_data:
+                    self.current_prices[symbol] = timeframe_data[primary_tf]['close'].iloc[-1]
+                else:
+                    # Use any available timeframe
+                    first_tf = next(iter(timeframe_data))
+                    self.current_prices[symbol] = timeframe_data[first_tf]['close'].iloc[-1]
 
-            if not data.empty:
-                self.current_prices[symbol] = data['close'].iloc[-1]
+            # Store for later use
+            self.mtf_data[symbol] = timeframe_data
 
-            return data
+            # Perform multi-timeframe trend analysis
+            if timeframe_data:
+                self.mtf_analysis[symbol] = analyze_multi_timeframe_trend(
+                    timeframe_data)
+
+                logger.info(
+                    f"📊 {symbol} MTF Analysis: {self.mtf_analysis[symbol]['overall_trend'].upper()} "
+                    f"(Confluence: {self.mtf_analysis[symbol]['confluence_score']:.0f}%, "
+                    f"Alignment: {self.mtf_analysis[symbol]['trend_alignment']:.0f}%)"
+                )
+
+            return timeframe_data
+
         except Exception as e:
-            logger.error(f"Error fetching data for {symbol}: {e}")
-            return pd.DataFrame()
-
-    def _fetch_htf_data(self, symbol: str) -> pd.DataFrame:
-        """Fetch 4h timeframe data for trend confluence"""
-        try:
-            # Cache 4h data to avoid excessive API calls
-            cache_key = f"{symbol}_4h"
-            current_time = datetime.now()
-
-            # Refresh cache every 30 minutes
-            if (cache_key in self.htf_data_cache and
-                    (current_time - self.htf_data_cache[cache_key]['timestamp']).total_seconds() < 1800):
-                return self.htf_data_cache[cache_key]['data']
-
-            start_time = datetime.now() - timedelta(days=30)  # 30 days of 4h data
-
-            htf_data = self.data_fetcher.get_historical_klines(
-                symbol=symbol,
-                interval='4h',
-                start_time=start_time
-            )
-
-            # Cache the data
-            self.htf_data_cache[cache_key] = {
-                'data': htf_data,
-                'timestamp': current_time
-            }
-
-            return htf_data
-        except Exception as e:
-            logger.error(f"Error fetching 4h data for {symbol}: {e}")
-            return pd.DataFrame()
+            logger.error(
+                f"Error fetching multi-timeframe data for {symbol}: {e}")
+            return {}
 
     def _analyze_symbol(self, symbol: str) -> List[Dict]:
-        """Analyze single symbol using Enhanced Order Block strategy"""
+        """Analyze single symbol using Enhanced Order Block strategy with multi-timeframe data"""
         try:
-            # Fetch latest data
-            data = self._fetch_data(symbol)
-            if data.empty or len(data) < 100:
-                logger.warning(f"{symbol}: Insufficient data for analysis")
+            # Fetch multi-timeframe data
+            timeframe_data = self._fetch_multi_timeframe_data(symbol)
+            if not timeframe_data:
+                logger.warning(f"{symbol}: No multi-timeframe data available")
                 return []
 
-            # Fetch 4h data for trend confluence
-            htf_data = self._fetch_htf_data(symbol)
+            # Get primary timeframe for orderblock detection
+            primary_tf = self.config.get('primary_timeframe', '15m')
+            primary_data = timeframe_data.get(primary_tf)
 
-            # Run Enhanced Order Block analysis
+            if primary_data is None or primary_data.empty or len(primary_data) < 100:
+                logger.warning(
+                    f"{symbol}: Insufficient primary timeframe ({primary_tf}) data")
+                return []
+
+            # Get higher timeframe for confluence (prefer 4h, fallback to highest available)
+            htf_candidates = ['4h', '1h', '30m']
+            htf_data = None
+            for htf in htf_candidates:
+                if htf in timeframe_data and not timeframe_data[htf].empty:
+                    htf_data = timeframe_data[htf]
+                    break
+
+            # Run Enhanced Order Block analysis with multi-timeframe context
             orders = self.strategies[symbol].analyze_and_generate_orders(
-                data, htf_data)
+                primary_data, htf_data)
 
-            # Add symbol and additional info to orders
+            # Enhanced order filtering based on multi-timeframe analysis
+            if symbol in self.mtf_analysis:
+                mtf_trends = self.mtf_analysis[symbol]
+                filtered_orders = self._filter_orders_by_mtf_analysis(
+                    orders, mtf_trends)
+
+                if len(filtered_orders) != len(orders):
+                    logger.info(
+                        f"📊 {symbol}: MTF filter reduced orders from {len(orders)} to {len(filtered_orders)}")
+
+                orders = filtered_orders
+
+            # Add symbol and additional MTF info to orders
             for order in orders:
                 order['symbol'] = symbol
                 order['current_price'] = self.current_prices[symbol]
+                order['mtf_analysis'] = self.mtf_analysis.get(symbol, {})
+                order['available_timeframes'] = list(timeframe_data.keys())
 
             return orders
 
         except Exception as e:
             logger.error(f"Error analyzing {symbol}: {e}")
             return []
+
+    def _filter_orders_by_mtf_analysis(self, orders: List[Dict], mtf_analysis: Dict) -> List[Dict]:
+        """Filter orders based on multi-timeframe analysis"""
+        if not mtf_analysis or not orders:
+            return orders
+
+        filtered_orders = []
+        overall_trend = mtf_analysis.get('overall_trend', 'neutral')
+        confluence_score = mtf_analysis.get('confluence_score', 0)
+        trend_alignment = mtf_analysis.get('trend_alignment', 0)
+
+        # Minimum confluence thresholds
+        min_confluence = self.config.get('min_mtf_confluence', 60)
+        min_alignment = self.config.get('min_mtf_alignment', 50)
+
+        for order in orders:
+            ob = order.get('order_block')
+            if not ob:
+                continue
+
+            order_direction = 'bullish' if ob.ob_type == 'Bull' else 'bearish'
+
+            # Check trend alignment
+            trend_aligned = (order_direction == overall_trend)
+
+            # Check confluence and alignment thresholds
+            sufficient_confluence = confluence_score >= min_confluence
+            sufficient_alignment = trend_alignment >= min_alignment
+
+            # Decision logic
+            if trend_aligned and sufficient_confluence and sufficient_alignment:
+                # Perfect alignment - keep order
+                order['mtf_quality'] = 'excellent'
+                filtered_orders.append(order)
+                logger.debug(
+                    f"✅ MTF Excellent: {order['symbol']} {order['side']}")
+
+            elif trend_aligned and sufficient_confluence:
+                # Good alignment but lower confluence - keep order
+                order['mtf_quality'] = 'good'
+                filtered_orders.append(order)
+                logger.debug(f"✅ MTF Good: {order['symbol']} {order['side']}")
+
+            elif trend_aligned and confluence_score >= (min_confluence * 0.8):
+                # Acceptable - keep order but reduce position size
+                order['mtf_quality'] = 'acceptable'
+                order['position_size'] *= 0.7  # Reduce by 30%
+                filtered_orders.append(order)
+                logger.debug(
+                    f"⚠️ MTF Acceptable (reduced size): {order['symbol']} {order['side']}")
+
+            else:
+                # Poor MTF confluence - skip order
+                logger.info(
+                    f"🚫 MTF Filter: Skipping {order['symbol']} {order['side']} "
+                    f"(Trend: {overall_trend}, Confluence: {confluence_score:.0f}%, "
+                    f"Alignment: {trend_alignment:.0f}%)"
+                )
+
+        return filtered_orders
 
     def _check_order_cancellations(self):
         """Check if any active orders should be cancelled based on market conditions"""
@@ -896,7 +1383,8 @@ class EnhancedOrderBlockBot:
                 margin_required=order['margin_required'],
                 risk_amount=order['risk_amount'],
                 leverage=order['leverage'],
-                algorithm=algorithm
+                algorithm=algorithm,
+                mtf_analysis=self.mtf_analysis.get(symbol, {})
             )
 
             # Store message_id for reference in fill notifications
@@ -1356,17 +1844,26 @@ class EnhancedOrderBlockBot:
 
 
 def load_config() -> Dict:
-    """Load enhanced trading configuration"""
+    """Load enhanced trading configuration with multi-timeframe support"""
     config = {
         # Algorithm choice
         'orderblock_algorithm': 'flux',  # 'flux' or 'breaker'
+
+        # Multi-timeframe settings
+        'timeframes': ['5m', '15m', '1h', '4h'],  # Available timeframes
+        'primary_timeframe': '15m',  # Primary timeframe for orderblock detection
+        'candles_per_timeframe': 500,  # Number of candles per timeframe
+
+        # Multi-timeframe filtering
+        'min_mtf_confluence': 60,  # Minimum confluence score (0-100)
+        'min_mtf_alignment': 50,   # Minimum trend alignment percentage
 
         # Trading parameters
         'test_mode': False,
         'test_capital': 1000.0,
         'max_capital': 5000.0,
-        'interval': '15m',
-        'lookback_hours': 168,
+        'interval': '15m',  # DEPRECATED - use primary_timeframe instead
+        'lookback_hours': 168,  # DEPRECATED - calculated from candles_per_timeframe
         'scan_interval': 60,
 
         # OrderBlock detection
@@ -1408,16 +1905,26 @@ def load_config() -> Dict:
     if os.getenv('CAPITAL_USAGE_PCT'):
         config['capital_usage_pct'] = float(os.getenv('CAPITAL_USAGE_PCT'))
 
+    # Multi-timeframe environment overrides
+    if os.getenv('TIMEFRAMES'):
+        config['timeframes'] = os.getenv('TIMEFRAMES').split(',')
+    if os.getenv('PRIMARY_TIMEFRAME'):
+        config['primary_timeframe'] = os.getenv('PRIMARY_TIMEFRAME')
+    if os.getenv('CANDLES_PER_TF'):
+        config['candles_per_timeframe'] = int(os.getenv('CANDLES_PER_TF'))
+    if os.getenv('MIN_MTF_CONFLUENCE'):
+        config['min_mtf_confluence'] = float(os.getenv('MIN_MTF_CONFLUENCE'))
+
     return config
 
 
 def main():
-    """Enhanced main function with algorithm choice"""
+    """Enhanced main function with multi-timeframe support"""
     load_dotenv()
 
     import argparse
     parser = argparse.ArgumentParser(
-        description='Enhanced OrderBlock Live Trading Bot')
+        description='Enhanced OrderBlock Live Trading Bot with Multi-Timeframe Analysis')
     parser.add_argument('--symbols', type=str, default='BTCUSDT,ETHUSDT,SOLUSDT',
                         help='Comma-separated list of symbols to trade')
     parser.add_argument('--algorithm', type=str, choices=['flux', 'breaker'], default='flux',
@@ -1431,10 +1938,21 @@ def main():
     parser.add_argument('--scan-interval', type=int, default=60,
                         help='Scan interval in seconds')
 
+    # Multi-timeframe arguments
+    parser.add_argument('--timeframes', type=str, default='5m,15m,1h,4h',
+                        help='Comma-separated list of timeframes (e.g., 5m,15m,1h,4h)')
+    parser.add_argument('--primary-tf', type=str, default='15m',
+                        help='Primary timeframe for orderblock detection')
+    parser.add_argument('--candles-per-tf', type=int, default=500,
+                        help='Number of candles per timeframe')
+    parser.add_argument('--min-confluence', type=float, default=60,
+                        help='Minimum MTF confluence score (0-100)')
+
     args = parser.parse_args()
 
-    # Parse symbols
+    # Parse symbols and timeframes
     symbols = [s.strip().upper() for s in args.symbols.split(',')]
+    timeframes = [tf.strip() for tf in args.timeframes.split(',')]
 
     # Load and update config
     config = load_config()
@@ -1444,13 +1962,26 @@ def main():
     config['capital_usage_pct'] = args.capital_usage
     config['scan_interval'] = args.scan_interval
 
-    logger.info("🚀 ENHANCED ORDERBLOCK TRADING BOT")
-    logger.info("=" * 50)
+    # Multi-timeframe config
+    config['timeframes'] = timeframes
+    config['primary_timeframe'] = args.primary_tf
+    config['candles_per_timeframe'] = args.candles_per_tf
+    config['min_mtf_confluence'] = args.min_confluence
+
+    logger.info("🚀 ENHANCED MULTI-TIMEFRAME ORDERBLOCK BOT")
+    logger.info("=" * 60)
     logger.info(f"Algorithm: {args.algorithm.upper()}")
     logger.info(f"Mode: {args.mode.upper()}")
     logger.info(f"Symbols: {', '.join(symbols)}")
     logger.info(f"Leverage: {args.leverage}x")
     logger.info(f"Capital Usage: {args.capital_usage}% per trade")
+    logger.info("-" * 60)
+    logger.info("📊 MULTI-TIMEFRAME SETTINGS:")
+    logger.info(f"Timeframes: {', '.join(timeframes)}")
+    logger.info(f"Primary TF: {args.primary_tf}")
+    logger.info(f"Candles per TF: {args.candles_per_tf}")
+    logger.info(f"Min Confluence: {args.min_confluence}%")
+    logger.info(f"Scan Interval: {args.scan_interval}s")
 
     # Create and start bot
     bot = EnhancedOrderBlockBot(symbols=symbols, config=config)
@@ -1462,11 +1993,20 @@ def main():
         while bot.running:
             time.sleep(10)
 
-            # Print status every 5 minutes
+            # Print enhanced status every 5 minutes
             if int(time.time()) % 300 == 0:
                 status = bot.get_status()
                 logger.info(
                     f"📊 Bot Status: {status['active_orders']} orders, {status['open_positions']} positions")
+
+                # Show MTF analysis summary
+                for symbol in bot.symbols:
+                    if symbol in bot.mtf_analysis:
+                        mtf = bot.mtf_analysis[symbol]
+                        trend = mtf.get('overall_trend', 'neutral')
+                        confluence = mtf.get('confluence_score', 0)
+                        logger.info(
+                            f"   📈 {symbol}: {trend.upper()} trend (Confluence: {confluence:.0f}%)")
 
     except KeyboardInterrupt:
         logger.info("🛑 Shutting down...")

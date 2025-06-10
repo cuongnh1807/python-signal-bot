@@ -1885,7 +1885,7 @@ def load_config() -> Dict:
 
         # Order management
         'max_orders_per_symbol': 2,
-        'max_distance_pct': 1.5,
+        'max_distance_pct': 2,
         'max_distance_cancel_pct': 3.0,
         'max_order_age_hours': 24,
         'min_order_value': 10,

@@ -226,7 +226,8 @@ def detect_flux_order_blocks(df, swing_length=10, max_atr_mult=3.5, max_order_bl
                         bottom=box_top,
                         ob_volume=total_volume,
                         ob_type="Bull",
-                        start_time=original_index[box_location_idx]
+                        start_time=original_index[box_location_idx] if hasattr(original_index[box_location_idx], 'strftime')
+                        else pd.to_datetime(original_index[box_location_idx])
                     )
                     ob_info.start_index = box_location_idx
                     ob_info.ob_low_volume = ob_low_volume
@@ -318,7 +319,8 @@ def detect_flux_order_blocks(df, swing_length=10, max_atr_mult=3.5, max_order_bl
                         bottom=box_bottom,
                         ob_volume=total_volume,
                         ob_type="Bear",
-                        start_time=original_index[box_location_idx]
+                        start_time=original_index[box_location_idx] if hasattr(original_index[box_location_idx], 'strftime')
+                        else pd.to_datetime(original_index[box_location_idx])
                     )
                     ob_info.start_index = box_location_idx
                     ob_info.ob_low_volume = ob_low_volume

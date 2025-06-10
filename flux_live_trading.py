@@ -33,6 +33,43 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def safe_datetime_format(timestamp_obj, format_str='%m-%d %H:%M', default='N/A'):
+    """
+    Safely format a timestamp object to string, handling various input types
+
+    Parameters:
+    - timestamp_obj: Can be datetime, pandas timestamp, int/float timestamp, or string
+    - format_str: strftime format string
+    - default: Default value if conversion fails
+
+    Returns:
+    - Formatted string or default value
+    """
+    try:
+        if timestamp_obj is None:
+            return default
+
+        # If it's already a datetime-like object with strftime
+        if hasattr(timestamp_obj, 'strftime'):
+            return timestamp_obj.strftime(format_str)
+
+        # If it's a numeric timestamp (seconds)
+        if isinstance(timestamp_obj, (int, float)):
+            # Handle both seconds and milliseconds timestamps
+            if timestamp_obj > 1e10:  # Likely milliseconds
+                timestamp_obj = timestamp_obj / 1000
+            dt = datetime.fromtimestamp(timestamp_obj)
+            return dt.strftime(format_str)
+
+        # Try to convert with pandas
+        dt = pd.to_datetime(timestamp_obj)
+        return dt.strftime(format_str)
+
+    except Exception as e:
+        logger.warning(f"Failed to format timestamp {timestamp_obj}: {e}")
+        return default
+
+
 class MultiTimeframeDataManager:
     """Manage data across multiple timeframes for comprehensive analysis"""
 
@@ -528,7 +565,7 @@ class TelegramNotifier:
             f"Height: <b>{abs(ob.top - ob.bottom):.6f}</b>\n"
             f"Volume: <b>{ob.ob_volume:.0f}</b>\n"
             f"Status: <b>{'🔴 Broken' if ob.breaker else '🟢 Active'}</b>\n"
-            f"Created: <b>{ob.start_time.strftime('%m-%d %H:%M')}</b>"
+            f"Created: <b>{safe_datetime_format(ob.start_time)}</b>"
         )
 
         # Send message and return message_id for reference

@@ -1338,11 +1338,30 @@ class EnhancedOrderBlockBot:
                 if not self.active_orders[symbol]:
                     continue
 
-                # Fetch current data for analysis
-                current_data = self._fetch_data(symbol)
-                htf_data = self._fetch_htf_data(symbol)
+                # Get current data from multi-timeframe cache
+                primary_tf = self.config.get('primary_timeframe', '15m')
+                current_data = None
+                htf_data = None
+
+                # Use cached multi-timeframe data if available
+                if symbol in self.mtf_data and self.mtf_data[symbol]:
+                    if primary_tf in self.mtf_data[symbol]:
+                        current_data = self.mtf_data[symbol][primary_tf]
+
+                    # Get higher timeframe data (prefer 4h, fallback to 1h)
+                    for htf in ['4h', '1h', '30m']:
+                        if htf in self.mtf_data[symbol]:
+                            htf_data = self.mtf_data[symbol][htf]
+                            break
+
+                # If no cached data, fetch fresh data for primary timeframe
+                if current_data is None or current_data.empty:
+                    current_data = self.mtf_manager.fetch_timeframe_data(
+                        symbol, primary_tf)
 
                 if current_data.empty:
+                    logger.warning(
+                        f"No current data available for {symbol} order cancellation check")
                     continue
 
                 orders_to_cancel = []
@@ -1360,6 +1379,7 @@ class EnhancedOrderBlockBot:
             except Exception as e:
                 logger.error(
                     f"Error checking order cancellations for {symbol}: {e}")
+                # Continue with other symbols instead of crashing
 
     def _cancel_order(self, order: Dict, reason: str):
         """Cancel an active order"""
